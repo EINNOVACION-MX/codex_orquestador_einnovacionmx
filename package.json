@@ -1,0 +1,16 @@
+{
+  "name": "codex-auto-model-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic task classification and model routing for Codex.",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:watch": "node --experimental-strip-types --test --watch tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11",
+    "typescript": "^5.9.3"
+  }
+}
