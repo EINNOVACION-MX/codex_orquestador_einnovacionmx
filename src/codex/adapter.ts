@@ -2,12 +2,14 @@ import { CodexModelResolver } from "./model-resolver.ts";
 import { CodexStdioTransport, type CodexStdioTransportOptions } from "./stdio-transport.ts";
 import { CodexThreadManager } from "./thread-manager.ts";
 import { CodexTurnExecutor } from "./turn-executor.ts";
+import { AutoModelOrchestrator } from "../orchestration/auto-model-orchestrator.ts";
 import type {
   CodexExecutionRequest,
   CodexExecutionResult,
   CodexTransport,
   DiscoveredCodexModel,
 } from "./types.ts";
+import type { OrchestrationRequest, OrchestrationResult } from "../orchestration/types.ts";
 
 /**
  * Application-facing boundary for Codex. The classifier and router stay
@@ -36,6 +38,10 @@ export class CodexAdapter {
 
   public execute(input: CodexExecutionRequest): Promise<CodexExecutionResult> {
     return this.executor.execute(input);
+  }
+
+  public executeAuto(input: OrchestrationRequest): Promise<OrchestrationResult> {
+    return new AutoModelOrchestrator(this.executor).execute(input);
   }
 
   public close(): Promise<void> {
