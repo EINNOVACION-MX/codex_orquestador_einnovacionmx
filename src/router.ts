@@ -86,6 +86,7 @@ export function routeTask(request: ClassificationRequest): ClassificationResult 
     selectedModel,
     reasoning,
     confidence: classification.confidence,
-    reasons: classification.reasons,
+    reasons: request.hasVisualContext ? [...classification.reasons, "visual reference provided"].slice(0, 4) : classification.reasons,
+    ...(request.hasVisualContext ? { hasVisualContext: true } : {}),
   };
 }

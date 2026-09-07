@@ -10,7 +10,9 @@ import type {
   CodexTurn,
   CodexTurnResponse,
   ModelResolution,
+  ActiveTurn,
 } from "./types.ts";
+import { attachmentInputs } from "../attachments.ts";
 
 function isTurnCompletedFor(
   notification: CodexNotification,
@@ -52,6 +54,8 @@ export class CodexTurnExecutor {
   private readonly transport: CodexTransport;
   private readonly modelResolver: CodexModelResolver;
   private readonly threadManager: CodexThreadManager;
+  private activeTurn: ActiveTurn | undefined;
+  private interrupting = false;
 
   public constructor(
     transport: CodexTransport,
@@ -61,6 +65,14 @@ export class CodexTurnExecutor {
     this.transport = transport;
     this.modelResolver = modelResolver;
     this.threadManager = threadManager;
+  }
+  public getActiveTurn(): ActiveTurn | undefined { return this.activeTurn; }
+  public async interruptActiveTurn(): Promise<boolean> {
+    const active = this.activeTurn;
+    if (!active || this.interrupting) return false;
+    this.interrupting = true;
+    try { await this.transport.request("turn/interrupt", { threadId: active.threadId, turnId: active.turnId }); return true; }
+    finally { this.interrupting = false; }
   }
 
   public async execute(input: CodexExecutionRequest): Promise<CodexExecutionResult> {
@@ -133,7 +145,7 @@ export class CodexTurnExecutor {
       const turnWaiter = this.waitForTurnCompletion(managedThread.threadId);
       const startedTurn = await this.transport.request<CodexTurnResponse>("turn/start", {
         threadId: managedThread.threadId,
-        input: [{ type: "text", text: input.prompt }],
+        input: [{ type: "text", text: input.prompt }, ...attachmentInputs(input.attachments ?? [])],
         model: resolution.realModelId,
         effort: resolution.reasoning,
         ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -142,6 +154,7 @@ export class CodexTurnExecutor {
       if (!startedTurn.turn || typeof startedTurn.turn.id !== "string") {
         throw new Error("Codex returned an unexpected turn/start response.");
       }
+      this.activeTurn = { threadId: managedThread.threadId, turnId: startedTurn.turn.id, model: resolution.resolvedModel!, reasoning: resolution.reasoning, startedAt: attemptStartedAt };
 
       if (startedTurn.turn.status !== "inProgress") {
         turnWaiter.dispose();
@@ -160,7 +173,7 @@ export class CodexTurnExecutor {
         ),
         error: error instanceof Error ? error.message : "Codex turn execution failed.",
       });
-    }
+    } finally { this.activeTurn = undefined; }
   }
 
   private waitForTurnCompletion(threadId: string): {

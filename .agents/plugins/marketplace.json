@@ -1,0 +1,12 @@
+{
+  "name": "cx-local",
+  "interface": { "displayName": "CX Local" },
+  "plugins": [
+    {
+      "name": "cx-native-bridge",
+      "source": { "source": "local", "path": "./plugins/cx-native-bridge" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

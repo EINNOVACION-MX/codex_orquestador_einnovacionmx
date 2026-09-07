@@ -5,6 +5,7 @@ import type {
   BudgetEvaluationInput,
   BudgetState,
   BudgetThresholds,
+  ExecutionBudget,
   UsageSnapshot,
 } from "./types.ts";
 import { DEFAULT_BUDGET_THRESHOLDS } from "./types.ts";
@@ -47,6 +48,13 @@ function stateFor(usage: UsageSnapshot | undefined, thresholds: BudgetThresholds
   return "emergency";
 }
 
+const STATE_RANK: Readonly<Record<BudgetState, number>> = { balanced: 0, conservative: 1, unknown: 1, eco: 2, emergency: 3 };
+
+function restrictedState(measured: BudgetState, cap: BudgetEvaluationInput["budgetStateCap"]): BudgetState {
+  if (!cap || STATE_RANK[measured] >= STATE_RANK[cap]) return measured;
+  return cap;
+}
+
 function isCritical(input: BudgetEvaluationInput): boolean {
   const routing = input.routingDecision;
   return (
@@ -65,12 +73,28 @@ function justifiedSol(input: BudgetEvaluationInput, minimum: ModelId): boolean {
   );
 }
 
-function reasoningCap(model: ModelId, state: BudgetState, solRequired: boolean): ReasoningLevel | undefined {
-  if (state === "balanced") return undefined;
-  if (model === "astra") return "xhigh";
-  if (model === "sol") return solRequired ? "high" : "medium";
-  if (model === "terra") return "medium";
-  return state === "emergency" ? "low" : "medium";
+function executionBudget(state: BudgetState, minimumModel: ModelId): ExecutionBudget {
+  const conservative = state === "conservative" || state === "unknown";
+  if (state === "balanced") return {
+    state, reasoningCaps: {}, maxAttemptsPerModel: { luna: 2, terra: 2, sol: 2, astra: 1 }, maxTotalAttempts: 5,
+    allowAutomaticEscalationToSol: true, allowAutomaticEscalationToAstra: true,
+    reasons: ["Balanced usage permits the normal retry and escalation budget."],
+  };
+  if (conservative) return {
+    state, reasoningCaps: { luna: "medium", terra: "high", sol: "high" }, maxAttemptsPerModel: { luna: 2, terra: 2, sol: 1, astra: 1 }, maxTotalAttempts: 4,
+    allowAutomaticEscalationToSol: true, allowAutomaticEscalationToAstra: false,
+    reasons: [state === "unknown" ? "Usage is unavailable; applying conservative execution limits." : "Conservative usage limits Astra and reduces retries."],
+  };
+  if (state === "eco") return {
+    state, reasoningCaps: { luna: "medium", terra: "medium", sol: "medium" }, maxAttemptsPerModel: { luna: 2, terra: 2, sol: 1, astra: minimumModel === "astra" ? 1 : 0 }, maxTotalAttempts: 3,
+    allowAutomaticEscalationToSol: false, allowAutomaticEscalationToAstra: false,
+    reasons: ["Eco usage reserves Sol for required complexity and disables automatic Astra."],
+  };
+  return {
+    state, reasoningCaps: { luna: "medium", terra: "medium", sol: "medium" }, maxAttemptsPerModel: { luna: 1, terra: 1, sol: 1, astra: minimumModel === "astra" ? 1 : 0 }, maxTotalAttempts: 2,
+    allowAutomaticEscalationToSol: false, allowAutomaticEscalationToAstra: false,
+    reasons: ["Emergency usage allows only the minimum required execution."],
+  };
 }
 
 /** A pure quota policy. Snapshot collection remains outside this module. */
@@ -83,11 +107,13 @@ export class BudgetController {
   }
 
   public evaluate(input: BudgetEvaluationInput): BudgetDecision {
-    const state = stateFor(input.usage, this.thresholds);
+    const measuredState = stateFor(input.usage, this.thresholds);
+    const state = restrictedState(measuredState, input.budgetStateCap);
     const originalModel = input.routingDecision.selectedModel;
     const critical = isCritical(input);
     const minimumModel = critical ? strongerModel(input.minimumModel ?? "luna", "sol") : input.minimumModel ?? "luna";
     const solRequired = justifiedSol(input, minimumModel);
+    const budget = executionBudget(state, minimumModel);
     const reasons: string[] = [];
     let preferredModel = originalModel;
 
@@ -125,7 +151,7 @@ export class BudgetController {
     }
     if (reasons.length === 0) reasons.push("Budget state permits the routed model.");
 
-    const cap = reasoningCap(preferredModel, state, solRequired);
+    const cap = budget.reasoningCaps[preferredModel];
     return {
       state,
       originalModel,
@@ -134,6 +160,7 @@ export class BudgetController {
       allowSol: atLeast(preferredModel, "sol") || solRequired,
       allowAstra: preferredModel === "astra" || minimumModel === "astra",
       ...(cap ? { reasoningCap: cap } : {}),
+      executionBudget: budget,
       reasons,
     };
   }

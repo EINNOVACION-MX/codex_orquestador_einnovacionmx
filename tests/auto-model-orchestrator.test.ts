@@ -111,7 +111,7 @@ describe("AutoModelOrchestrator", () => {
     assert.deepEqual(callModels(executor), ["sol", "sol", "astra"]);
   });
 
-  it("stops for human review after persistent Astra failure", async () => {
+  it("stops at the balanced Astra execution budget", async () => {
     const executor = new ScriptedExecutor([
       { status: "failed", testFailure: true },
       { status: "failed", testFailure: true },
@@ -123,8 +123,8 @@ describe("AutoModelOrchestrator", () => {
       limits: { perModel: { luna: 2, terra: 2, sol: 2, astra: 2 }, maxTotalAttempts: 5 },
     });
 
-    assert.equal(result.finalStatus, "human-review");
-    assert.deepEqual(callModels(executor), ["astra", "astra"]);
+    assert.equal(result.finalStatus, "limit-reached");
+    assert.deepEqual(callModels(executor), ["astra"]);
   });
 
   it("does not escalate infrastructure failure", async () => {

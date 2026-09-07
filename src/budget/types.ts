@@ -30,9 +30,22 @@ export const DEFAULT_BUDGET_THRESHOLDS: BudgetThresholds = {
 
 export interface BudgetEvaluationInput {
   usage?: UsageSnapshot;
+  /** A CLI-selected restriction. It can only make the measured state stricter. */
+  budgetStateCap?: Exclude<BudgetState, "unknown">;
   routingDecision: ClassificationResult;
   minimumModel?: ModelId;
   escalation?: EscalationDecision;
+}
+
+/** Execution controls derived from the current quota state, without transport concerns. */
+export interface ExecutionBudget {
+  state: BudgetState;
+  reasoningCaps: Partial<Record<ModelId, ReasoningLevel>>;
+  maxAttemptsPerModel: Readonly<Record<ModelId, number>>;
+  maxTotalAttempts: number;
+  allowAutomaticEscalationToSol: boolean;
+  allowAutomaticEscalationToAstra: boolean;
+  reasons: string[];
 }
 
 export interface BudgetDecision {
@@ -43,5 +56,6 @@ export interface BudgetDecision {
   allowSol: boolean;
   allowAstra: boolean;
   reasoningCap?: ReasoningLevel;
+  executionBudget: ExecutionBudget;
   reasons: string[];
 }

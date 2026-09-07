@@ -248,6 +248,27 @@ describe("CodexTurnExecutor", () => {
     assert.equal(taskExecution?.attempts[0]?.model.realId, "gpt-5.6-terra");
   });
 
+  it("sends text plus multiple local and URL images in the documented App Server format", async () => {
+    const transport = transportWithModels([model("gpt-5.6-luna")])
+      .respond("thread/start", { thread: { id: "thread-images" } })
+      .respond("turn/start", (params: JsonRecord) => {
+        assert.deepEqual(params.input, [
+          { type: "text", text: "Cambia el login" },
+          { type: "localImage", path: "C:\\workspace\\login.png" },
+          { type: "image", url: "https://example.com/reference.jpg", detail: "high" },
+        ]);
+        return { turn: { id: "turn-images", status: "completed", durationMs: 2 } };
+      });
+    const result = await executor(transport).execute({
+      prompt: "Cambia el login", routingDecision: routeTask({ prompt: "Cambia el login", hasVisualContext: true }),
+      attachments: [
+        { type: "image", name: "login.png", mimeType: "image/png", path: "C:\\workspace\\login.png" },
+        { type: "image", name: "reference.jpg", mimeType: "image/jpeg", url: "https://example.com/reference.jpg", detail: "high" },
+      ],
+    });
+    assert.equal(result.status, "completed");
+  });
+
   it("continues a supplied thread when executing a turn", async () => {
     const transport = transportWithModels([model("gpt-5.6-luna")])
       .respond("thread/resume", { thread: { id: "thread-existing" } })

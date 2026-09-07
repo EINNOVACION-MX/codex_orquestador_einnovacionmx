@@ -1,0 +1,6 @@
+{
+  "cx-native-bridge": {
+    "command": "cx",
+    "args": ["mcp"]
+  }
+}

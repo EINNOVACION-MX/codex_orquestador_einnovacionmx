@@ -45,6 +45,7 @@ export type BudgetProfileName = (typeof BUDGET_PROFILES)[number];
 
 export interface ClassificationRequest {
   prompt: string;
+  hasVisualContext?: boolean;
   budgetProfile?: BudgetProfileName;
   /** Metadata supplied by the caller is preferred over phrases found in the prompt. */
   failedAttempts?: number;
@@ -63,7 +64,11 @@ export interface ClassificationResult {
   reasoning: ReasoningLevel;
   confidence: number;
   reasons: string[];
+  hasVisualContext?: boolean;
 }
+
+export interface CxAttachment { type: "image"; path?: string; url?: string; mimeType?: string; name?: string; detail?: "auto" | "low" | "high" | "original"; }
+export interface ResolvedCxAttachment { type: "image"; name: string; mimeType: string; path?: string; url?: string; detail?: "auto" | "low" | "high" | "original"; }
 
 export interface ModelConfig {
   id: ModelId;

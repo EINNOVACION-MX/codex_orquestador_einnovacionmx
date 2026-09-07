@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Deterministic task classification and model routing for Codex.",
+  "bin": {
+    "cx": "./bin/cx.js"
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",

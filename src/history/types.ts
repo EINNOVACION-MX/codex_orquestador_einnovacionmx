@@ -5,7 +5,8 @@ export type AttemptStatus =
   | "failed"
   | "timeout"
   | "test-failure"
-  | "execution-error";
+  | "execution-error"
+  | "interrupted";
 
 export type TaskExecutionFinalStatus = AttemptStatus | "pending" | "dry-run" | "not-executed";
 

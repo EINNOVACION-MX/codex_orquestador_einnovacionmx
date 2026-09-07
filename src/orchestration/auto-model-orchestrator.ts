@@ -7,7 +7,7 @@ import { routeTask } from "../router.ts";
 import type { CodexExecutionResult } from "../codex/types.ts";
 import type { EscalationDecision } from "../escalation/types.ts";
 import type { TaskExecution } from "../history/types.ts";
-import type { BudgetDecision } from "../budget/types.ts";
+import type { BudgetDecision, ExecutionBudget, UsageSnapshot } from "../budget/types.ts";
 import type { ClassificationResult, ModelId, ReasoningLevel } from "../types.ts";
 import {
   DEFAULT_ATTEMPT_LIMITS,
@@ -38,6 +38,21 @@ function decisionFor(
 
 function countModelAttempts(execution: TaskExecution, model: ModelId): number {
   return execution.attempts.filter((attempt) => attempt.model.logical === model).length;
+}
+
+const REASONING_RANK: Readonly<Record<ReasoningLevel, number>> = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
+
+function effectiveLimits(budget: ExecutionBudget, requested?: AttemptLimits): AttemptLimits {
+  const fallback = requested ?? DEFAULT_ATTEMPT_LIMITS;
+  return {
+    maxTotalAttempts: Math.min(fallback.maxTotalAttempts, budget.maxTotalAttempts),
+    perModel: {
+      luna: Math.min(fallback.perModel.luna, budget.maxAttemptsPerModel.luna),
+      terra: Math.min(fallback.perModel.terra, budget.maxAttemptsPerModel.terra),
+      sol: Math.min(fallback.perModel.sol, budget.maxAttemptsPerModel.sol),
+      astra: Math.min(fallback.perModel.astra, budget.maxAttemptsPerModel.astra),
+    },
+  };
 }
 
 /** Executes the existing router, executor and escalation policy with hard stop limits. */
@@ -71,22 +86,24 @@ export class AutoModelOrchestrator {
       prompt: input.prompt,
       ...(input.budgetProfile ? { budgetProfile: input.budgetProfile } : {}),
     });
-    const limits = input.limits ?? DEFAULT_ATTEMPT_LIMITS;
     const historyBuilder = new TaskExecutionHistory();
     let taskExecution = input.taskExecution ?? historyBuilder.begin({
       prompt: input.prompt,
       routingDecision,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     });
-    const usageSnapshot = input.usageSnapshot ?? await this.usageFor(input.usageProvider ?? this.usageProvider);
+    let usageSnapshot = input.usageSnapshot ?? await this.usageFor(input.usageProvider ?? this.usageProvider);
     const initialBudget = this.budget.evaluate({
       ...(usageSnapshot ? { usage: usageSnapshot } : {}),
+      ...(input.budgetStateCap ? { budgetStateCap: input.budgetStateCap } : {}),
       routingDecision,
       ...(input.minimumModel ? { minimumModel: input.minimumModel } : {}),
     });
     const budgetDecisions: BudgetDecision[] = [initialBudget];
+    let activeBudget = initialBudget;
+    let limits = effectiveLimits(activeBudget.executionBudget, input.limits);
     let currentModel = strongerModel(initialBudget.preferredModel, initialBudget.minimumModel);
-    let currentReasoning = this.reasoningFor(currentModel, routingDecision.reasoning, initialBudget);
+    let currentReasoning = this.reasoningFor(currentModel, routingDecision.reasoning, activeBudget, input.minimumReasoning);
     let threadId = input.threadId ?? taskExecution.threadId ?? undefined;
     let prompt = input.prompt;
     let mustResolveExactModel = false;
@@ -96,7 +113,7 @@ export class AutoModelOrchestrator {
     while (true) {
       const limitReason = this.limitReason(taskExecution, currentModel, limits);
       if (limitReason) {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "limit-reached", limitReason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "limit-reached", limitReason, finalResult);
       }
 
       const declaredMinimum = strongerModel(input.minimumModel ?? "luna", initialBudget.minimumModel);
@@ -109,6 +126,7 @@ export class AutoModelOrchestrator {
         ...(threadId ? { threadId } : {}),
         minimumModel,
         ...(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}),
+        ...(input.attachments ? { attachments: input.attachments } : {}),
         taskExecution,
       });
       taskExecution = finalResult.taskExecution ?? historyBuilder.complete(taskExecution, finalResult);
@@ -117,10 +135,10 @@ export class AutoModelOrchestrator {
       currentReasoning = finalResult.reasoning ?? currentReasoning;
 
       if (input.dryRun || finalResult.status === "dry-run") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "dry-run", "Dry-run completed without starting a turn.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "dry-run", "Dry-run completed without starting a turn.", finalResult);
       }
       if (finalResult.status === "not-executed") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "unavailable", finalResult.error ?? "No permitted Codex model could be resolved.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "unavailable", finalResult.error ?? "No permitted Codex model could be resolved.", finalResult);
       }
 
       const policyDecision = this.policy.decide({
@@ -133,32 +151,38 @@ export class AutoModelOrchestrator {
       escalations.push(policyDecision);
 
       if (policyDecision.action === "stop-success") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "success", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "success", policyDecision.reason, finalResult);
       }
       if (policyDecision.action === "stop-failure") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "failed", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "failed", policyDecision.reason, finalResult);
       }
       if (policyDecision.action === "require-human-review") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "human-review", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "human-review", policyDecision.reason, finalResult);
       }
 
       if (!policyDecision.nextModel || !policyDecision.nextReasoning) {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "failed", "Escalation policy returned an incomplete continuation decision.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "failed", "Escalation policy returned an incomplete continuation decision.", finalResult);
       }
 
       const continuationRouting = decisionFor(routingDecision, policyDecision.nextModel, policyDecision.nextReasoning);
+      if (input.refreshUsageAfterCostlyEscalation && policyDecision.action === "escalate-model" && MODEL_CONFIG[policyDecision.nextModel].rank >= MODEL_CONFIG.sol.rank && !input.usageSnapshot) {
+        usageSnapshot = await this.usageFor(input.usageProvider ?? this.usageProvider);
+      }
       const continuationBudget = this.budget.evaluate({
         ...(usageSnapshot ? { usage: usageSnapshot } : {}),
+        ...(input.budgetStateCap ? { budgetStateCap: input.budgetStateCap } : {}),
         routingDecision: continuationRouting,
         ...(input.minimumModel ? { minimumModel: input.minimumModel } : {}),
         escalation: policyDecision,
       });
       budgetDecisions.push(continuationBudget);
-      if (continuationBudget.preferredModel !== policyDecision.nextModel) {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "human-review", "Budget policy restricted the requested escalation.", finalResult);
+      if (continuationBudget.preferredModel !== policyDecision.nextModel || !this.allowsEscalation(policyDecision, continuationBudget, input.minimumModel)) {
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, activeBudget.executionBudget, usageSnapshot, "human-review", "Execution budget restricted the requested escalation.", finalResult);
       }
+      activeBudget = continuationBudget;
+      limits = effectiveLimits(activeBudget.executionBudget, input.limits);
       currentModel = continuationBudget.preferredModel;
-      currentReasoning = this.reasoningFor(currentModel, policyDecision.nextReasoning, continuationBudget);
+      currentReasoning = this.reasoningFor(currentModel, policyDecision.nextReasoning, continuationBudget, input.minimumReasoning);
       prompt = RETRY_PROMPT;
       mustResolveExactModel = policyDecision.action === "escalate-model";
     }
@@ -180,6 +204,8 @@ export class AutoModelOrchestrator {
     finalReasoning: ReasoningLevel | null,
     escalations: EscalationDecision[],
     budgetDecisions: BudgetDecision[],
+    executionBudget: ExecutionBudget,
+    usageSnapshot: UsageSnapshot,
     finalStatus: OrchestrationResult["finalStatus"],
     stoppedReason: string,
     finalResult?: CodexExecutionResult,
@@ -192,16 +218,35 @@ export class AutoModelOrchestrator {
       totalAttempts: taskExecution.attempts.length,
       escalations,
       budgetDecisions,
+      budgetState: executionBudget.state,
+      executionBudget,
+      usageSnapshot,
       ...(finalResult ? { finalResult } : {}),
       stoppedReason,
     };
   }
 
-  private reasoningFor(model: ModelId, requested: ReasoningLevel, budget: BudgetDecision): ReasoningLevel {
-    return supportedReasoningFor(model, budget.reasoningCap ?? requested);
+  private reasoningFor(model: ModelId, requested: ReasoningLevel, budget: BudgetDecision, minimum?: ReasoningLevel): ReasoningLevel {
+    const cap = budget.executionBudget.reasoningCaps[model];
+    const capped = cap && REASONING_RANK[cap] < REASONING_RANK[requested] ? cap : requested;
+    const effective = minimum && REASONING_RANK[minimum] > REASONING_RANK[capped] ? minimum : capped;
+    return supportedReasoningFor(model, effective);
   }
 
-  private async usageFor(provider: UsageProvider | undefined): Promise<import("../budget/types.ts").UsageSnapshot> {
+  private allowsEscalation(decision: EscalationDecision, budget: BudgetDecision, minimum?: ModelId): boolean {
+    const target = decision.nextModel;
+    if (!target || decision.action !== "escalate-model") return true;
+    if (minimum && MODEL_CONFIG[target].rank <= MODEL_CONFIG[minimum].rank) return true;
+    if (target === "astra") return budget.executionBudget.allowAutomaticEscalationToAstra || (budget.executionBudget.state === "conservative" && decision.failureCategory === "critical");
+    if (target === "sol") {
+      return budget.executionBudget.allowAutomaticEscalationToSol
+        || decision.failureCategory === "critical"
+        || (budget.executionBudget.state === "eco" && decision.failureCategory === "complexity");
+    }
+    return true;
+  }
+
+  private async usageFor(provider: UsageProvider | undefined): Promise<UsageSnapshot> {
     if (!provider) return unknownUsageSnapshot();
     try {
       return await provider.getUsage();

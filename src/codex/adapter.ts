@@ -12,6 +12,7 @@ import type {
   DiscoveredCodexModel,
 } from "./types.ts";
 import type { OrchestrationRequest, OrchestrationResult } from "../orchestration/types.ts";
+import type { EscalationPolicyService } from "../orchestration/types.ts";
 
 /**
  * Application-facing boundary for Codex. The classifier and router stay
@@ -22,12 +23,14 @@ export class CodexAdapter {
   private readonly resolver: CodexModelResolver;
   private readonly threadManager: CodexThreadManager;
   private readonly executor: CodexTurnExecutor;
+  private readonly usageProvider: CodexAppServerUsageProvider;
 
   public constructor(transport: CodexTransport) {
     this.transport = transport;
     this.resolver = new CodexModelResolver(transport);
     this.threadManager = new CodexThreadManager(transport);
     this.executor = new CodexTurnExecutor(transport, this.resolver, this.threadManager);
+    this.usageProvider = new CodexAppServerUsageProvider(transport);
   }
 
   public static async connect(options?: CodexStdioTransportOptions): Promise<CodexAdapter> {
@@ -44,11 +47,17 @@ export class CodexAdapter {
 
   /** Reads account limits through App Server and never creates a thread or turn. */
   public getUsage(): Promise<UsageSnapshot> {
-    return new CodexAppServerUsageProvider(this.transport).getUsage();
+    return this.usageProvider.getUsage();
   }
+  public getActiveTurn() { return this.executor.getActiveTurn(); }
+  public interruptActiveTurn(): Promise<boolean> { return this.executor.interruptActiveTurn(); }
 
-  public executeAuto(input: OrchestrationRequest): Promise<OrchestrationResult> {
-    return new AutoModelOrchestrator(this.executor).execute(input);
+  public executeAuto(input: OrchestrationRequest, options: { policy?: EscalationPolicyService } = {}): Promise<OrchestrationResult> {
+    return new AutoModelOrchestrator({
+      executor: this.executor,
+      ...(options.policy ? { policy: options.policy } : {}),
+      usageProvider: this.usageProvider,
+    }).execute(input);
   }
 
   public close(): Promise<void> {

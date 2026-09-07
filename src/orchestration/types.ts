@@ -2,7 +2,8 @@ import type { CodexExecutionRequest, CodexExecutionResult } from "../codex/types
 import type { EscalationDecision, EscalationPolicyInput } from "../escalation/types.ts";
 import type { TaskExecution } from "../history/types.ts";
 import type { BudgetProfileName, ClassificationResult, ModelId, ReasoningLevel } from "../types.ts";
-import type { BudgetDecision, UsageSnapshot } from "../budget/types.ts";
+import type { ResolvedCxAttachment } from "../types.ts";
+import type { BudgetDecision, BudgetState, ExecutionBudget, UsageSnapshot } from "../budget/types.ts";
 import type { UsageProvider } from "../usage/types.ts";
 
 export interface ExecutionService {
@@ -16,6 +17,7 @@ export interface EscalationPolicyService {
 export interface BudgetPolicyService {
   evaluate(input: {
     usage?: UsageSnapshot;
+    budgetStateCap?: Exclude<BudgetState, "unknown">;
     routingDecision: ClassificationResult;
     minimumModel?: ModelId;
     escalation?: EscalationDecision;
@@ -41,8 +43,14 @@ export interface OrchestrationRequest {
   budgetProfile?: BudgetProfileName;
   usageSnapshot?: UsageSnapshot;
   usageProvider?: UsageProvider;
+  budgetStateCap?: Exclude<BudgetState, "unknown">;
+  /** Required reasoning is never reduced by the adaptive budget. */
+  minimumReasoning?: ReasoningLevel;
+  /** Re-read a cached provider only after an escalation to Sol or Astra. */
+  refreshUsageAfterCostlyEscalation?: boolean;
   dryRun?: boolean;
   limits?: AttemptLimits;
+  attachments?: ResolvedCxAttachment[];
 }
 
 export interface AutoModelOrchestratorOptions {
@@ -71,6 +79,9 @@ export interface OrchestrationResult {
   totalAttempts: number;
   escalations: EscalationDecision[];
   budgetDecisions: BudgetDecision[];
+  budgetState: import("../budget/types.ts").BudgetState;
+  executionBudget: ExecutionBudget;
+  usageSnapshot: UsageSnapshot;
   finalResult?: CodexExecutionResult;
   stoppedReason: string;
 }

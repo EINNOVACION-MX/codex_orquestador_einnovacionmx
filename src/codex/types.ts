@@ -4,6 +4,7 @@ import type {
   ReasoningLevel,
 } from "../types.ts";
 import type { TaskExecution, TestResult } from "../history/types.ts";
+import type { ResolvedCxAttachment } from "../types.ts";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +91,7 @@ export interface CodexTurn {
 export interface CodexTurnResponse {
   turn: CodexTurn;
 }
+export interface ActiveTurn { threadId: string; turnId: string; model: ModelId; reasoning: ReasoningLevel; startedAt: string; }
 
 export interface TurnCompletedNotification {
   threadId: string;
@@ -105,6 +107,7 @@ export interface CodexExecutionRequest {
   cwd?: string;
   taskExecution?: TaskExecution;
   testResult?: TestResult;
+  attachments?: ResolvedCxAttachment[];
 }
 
 export type CodexExecutionStatus =

@@ -33,7 +33,7 @@ export interface AttemptInput {
 function finalStatusFor(status: CodexExecutionStatus): TaskExecutionFinalStatus {
   if (status === "completed") return "success";
   if (status === "failed") return "failed";
-  if (status === "interrupted") return "timeout";
+  if (status === "interrupted") return "interrupted";
   if (status === "error") return "execution-error";
   if (status === "dry-run") return "dry-run";
   if (status === "not-executed") return "not-executed";

@@ -117,6 +117,9 @@ export class EscalationPolicy {
         failureCategory: "unknown",
       };
     }
+    if (lastAttempt.status === "interrupted") {
+      return { action: "stop-failure", currentModel: input.currentModel, reason: "A manually interrupted turn is not retried or escalated." };
+    }
 
     const category = categoryFor(input, lastAttempt);
     const requiredMinimum = category === "critical"

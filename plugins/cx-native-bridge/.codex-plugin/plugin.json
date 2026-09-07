@@ -1,0 +1,19 @@
+{
+  "name": "cx-native-bridge",
+  "version": "0.1.2",
+  "description": "Use CX Auto Model routing and shared project context from Codex.",
+  "author": { "name": "EINNOVACION MX" },
+  "license": "MIT",
+  "keywords": ["codex", "mcp", "routing", "project-context"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "CX Native Bridge",
+    "shortDescription": "Route and execute with CX Auto Model.",
+    "longDescription": "Provides explicit CX tools backed by the same local CX Engine and .cx project context.",
+    "developerName": "EINNOVACION MX",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "defaultPrompt": ["Use CX to route this task.", "Show CX project context.", "Use CX status for this workspace."]
+  }
+}
