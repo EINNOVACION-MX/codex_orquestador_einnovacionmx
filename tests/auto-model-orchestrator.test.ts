@@ -105,6 +105,7 @@ describe("AutoModelOrchestrator", () => {
       prompt: "Refactoriza un módulo complejo",
       routingDecision: { ...routeTask({ prompt: "Refactoriza un módulo complejo" }), selectedModel: "sol", reasoning: "high" },
       budgetProfile: "quality",
+      usageSnapshot: { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 90 } },
     });
 
     assert.deepEqual(callModels(executor), ["sol", "sol", "astra"]);
@@ -118,6 +119,7 @@ describe("AutoModelOrchestrator", () => {
     const result = await new AutoModelOrchestrator(executor).execute({
       prompt: "Arquitectura crítica", routingDecision: { ...routeTask({ prompt: "Arquitectura crítica" }), selectedModel: "astra", reasoning: "xhigh" },
       budgetProfile: "quality",
+      usageSnapshot: { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 90 } },
       limits: { perModel: { luna: 2, terra: 2, sol: 2, astra: 2 }, maxTotalAttempts: 5 },
     });
 
@@ -164,6 +166,7 @@ describe("AutoModelOrchestrator", () => {
       prompt: "Refactoriza un módulo complejo",
       routingDecision: { ...routeTask({ prompt: "Refactoriza un módulo complejo" }), selectedModel: "sol", reasoning: "high" },
       budgetProfile: "quality",
+      usageSnapshot: { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 90 } },
     });
 
     assert.equal(result.finalStatus, "unavailable");
@@ -187,5 +190,16 @@ describe("AutoModelOrchestrator", () => {
 
     assert.equal(result.finalStatus, "dry-run");
     assert.equal(executor.calls.length, 1);
+  });
+
+  it("applies an eco usage snapshot before the first execution", async () => {
+    const executor = new ScriptedExecutor([{ status: "completed" }]);
+    await new AutoModelOrchestrator(executor).execute({
+      prompt: "Refactoriza un módulo complejo",
+      routingDecision: { ...routeTask({ prompt: "Refactoriza un módulo complejo" }), selectedModel: "sol", reasoning: "high" },
+      usageSnapshot: { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 25 } },
+    });
+
+    assert.equal(executor.calls[0]?.routingDecision.selectedModel, "terra");
   });
 });

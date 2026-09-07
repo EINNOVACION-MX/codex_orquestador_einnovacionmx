@@ -8,7 +8,7 @@ import type { TaskExecution, TestResult } from "../history/types.ts";
 export type JsonRecord = Record<string, unknown>;
 
 export interface CodexTransport {
-  request<T>(method: string, params: JsonRecord): Promise<T>;
+  request<T>(method: string, params: JsonRecord | null): Promise<T>;
   notify(method: string, params: JsonRecord): void;
   onNotification(listener: CodexNotificationListener): () => void;
   close(): Promise<void>;

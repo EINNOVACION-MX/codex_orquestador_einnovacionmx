@@ -81,7 +81,7 @@ export class CodexStdioTransport implements CodexTransport {
     return transport;
   }
 
-  public request<T>(method: string, params: JsonRecord): Promise<T> {
+  public request<T>(method: string, params: JsonRecord | null): Promise<T> {
     if (this.closed || !this.process.stdin.writable) {
       return Promise.reject(new CodexTransportError("Codex App Server is not available."));
     }

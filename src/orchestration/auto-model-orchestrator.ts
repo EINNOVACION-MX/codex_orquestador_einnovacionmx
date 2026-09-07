@@ -1,19 +1,26 @@
 import { TaskExecutionHistory } from "../history/task-execution-history.ts";
 import { EscalationPolicy } from "../escalation/escalation-policy.ts";
-import { MODEL_CONFIG } from "../config.ts";
+import { MODEL_CONFIG, supportedReasoningFor } from "../config.ts";
+import { BudgetController } from "../budget/budget-controller.ts";
+import { unknownUsageSnapshot } from "../usage/usage-snapshot.ts";
 import { routeTask } from "../router.ts";
 import type { CodexExecutionResult } from "../codex/types.ts";
 import type { EscalationDecision } from "../escalation/types.ts";
 import type { TaskExecution } from "../history/types.ts";
+import type { BudgetDecision } from "../budget/types.ts";
 import type { ClassificationResult, ModelId, ReasoningLevel } from "../types.ts";
 import {
   DEFAULT_ATTEMPT_LIMITS,
   type AttemptLimits,
+  type AutoModelOrchestratorDependencies,
+  type AutoModelOrchestratorOptions,
+  type BudgetPolicyService,
   type ExecutionService,
   type OrchestrationRequest,
   type OrchestrationResult,
   type EscalationPolicyService,
 } from "./types.ts";
+import type { UsageProvider } from "../usage/types.ts";
 
 const RETRY_PROMPT = "Revisa el resultado del intento anterior. Corrige el fallo detectado y vuelve a validar la tarea.";
 
@@ -37,10 +44,26 @@ function countModelAttempts(execution: TaskExecution, model: ModelId): number {
 export class AutoModelOrchestrator {
   private readonly executor: ExecutionService;
   private readonly policy: EscalationPolicyService;
+  private readonly budget: BudgetPolicyService;
+  private readonly usageProvider: UsageProvider | undefined;
 
-  public constructor(executor: ExecutionService, policy: EscalationPolicyService = new EscalationPolicy()) {
-    this.executor = executor;
-    this.policy = policy;
+  public constructor(
+    executor: ExecutionService | AutoModelOrchestratorDependencies,
+    policy: EscalationPolicyService = new EscalationPolicy(),
+    budget: BudgetPolicyService = new BudgetController(),
+    options: AutoModelOrchestratorOptions = {},
+  ) {
+    if ("executor" in executor) {
+      this.executor = executor.executor;
+      this.policy = executor.policy ?? policy;
+      this.budget = executor.budget ?? budget;
+      this.usageProvider = executor.usageProvider;
+    } else {
+      this.executor = executor;
+      this.policy = policy;
+      this.budget = budget;
+      this.usageProvider = options.usageProvider;
+    }
   }
 
   public async execute(input: OrchestrationRequest): Promise<OrchestrationResult> {
@@ -55,8 +78,15 @@ export class AutoModelOrchestrator {
       routingDecision,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     });
-    let currentModel = strongerModel(routingDecision.selectedModel, input.minimumModel ?? "luna");
-    let currentReasoning = routingDecision.reasoning;
+    const usageSnapshot = input.usageSnapshot ?? await this.usageFor(input.usageProvider ?? this.usageProvider);
+    const initialBudget = this.budget.evaluate({
+      ...(usageSnapshot ? { usage: usageSnapshot } : {}),
+      routingDecision,
+      ...(input.minimumModel ? { minimumModel: input.minimumModel } : {}),
+    });
+    const budgetDecisions: BudgetDecision[] = [initialBudget];
+    let currentModel = strongerModel(initialBudget.preferredModel, initialBudget.minimumModel);
+    let currentReasoning = this.reasoningFor(currentModel, routingDecision.reasoning, initialBudget);
     let threadId = input.threadId ?? taskExecution.threadId ?? undefined;
     let prompt = input.prompt;
     let mustResolveExactModel = false;
@@ -66,10 +96,10 @@ export class AutoModelOrchestrator {
     while (true) {
       const limitReason = this.limitReason(taskExecution, currentModel, limits);
       if (limitReason) {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "limit-reached", limitReason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "limit-reached", limitReason, finalResult);
       }
 
-      const declaredMinimum = input.minimumModel ?? "luna";
+      const declaredMinimum = strongerModel(input.minimumModel ?? "luna", initialBudget.minimumModel);
       const minimumModel = mustResolveExactModel
         ? strongerModel(declaredMinimum, currentModel)
         : declaredMinimum;
@@ -87,10 +117,10 @@ export class AutoModelOrchestrator {
       currentReasoning = finalResult.reasoning ?? currentReasoning;
 
       if (input.dryRun || finalResult.status === "dry-run") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "dry-run", "Dry-run completed without starting a turn.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "dry-run", "Dry-run completed without starting a turn.", finalResult);
       }
       if (finalResult.status === "not-executed") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "unavailable", finalResult.error ?? "No permitted Codex model could be resolved.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "unavailable", finalResult.error ?? "No permitted Codex model could be resolved.", finalResult);
       }
 
       const policyDecision = this.policy.decide({
@@ -103,21 +133,32 @@ export class AutoModelOrchestrator {
       escalations.push(policyDecision);
 
       if (policyDecision.action === "stop-success") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "success", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "success", policyDecision.reason, finalResult);
       }
       if (policyDecision.action === "stop-failure") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "failed", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "failed", policyDecision.reason, finalResult);
       }
       if (policyDecision.action === "require-human-review") {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "human-review", policyDecision.reason, finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "human-review", policyDecision.reason, finalResult);
       }
 
       if (!policyDecision.nextModel || !policyDecision.nextReasoning) {
-        return this.result(taskExecution, currentModel, currentReasoning, escalations, "failed", "Escalation policy returned an incomplete continuation decision.", finalResult);
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "failed", "Escalation policy returned an incomplete continuation decision.", finalResult);
       }
 
-      currentModel = policyDecision.nextModel;
-      currentReasoning = policyDecision.nextReasoning;
+      const continuationRouting = decisionFor(routingDecision, policyDecision.nextModel, policyDecision.nextReasoning);
+      const continuationBudget = this.budget.evaluate({
+        ...(usageSnapshot ? { usage: usageSnapshot } : {}),
+        routingDecision: continuationRouting,
+        ...(input.minimumModel ? { minimumModel: input.minimumModel } : {}),
+        escalation: policyDecision,
+      });
+      budgetDecisions.push(continuationBudget);
+      if (continuationBudget.preferredModel !== policyDecision.nextModel) {
+        return this.result(taskExecution, currentModel, currentReasoning, escalations, budgetDecisions, "human-review", "Budget policy restricted the requested escalation.", finalResult);
+      }
+      currentModel = continuationBudget.preferredModel;
+      currentReasoning = this.reasoningFor(currentModel, policyDecision.nextReasoning, continuationBudget);
       prompt = RETRY_PROMPT;
       mustResolveExactModel = policyDecision.action === "escalate-model";
     }
@@ -138,6 +179,7 @@ export class AutoModelOrchestrator {
     finalModel: ModelId | null,
     finalReasoning: ReasoningLevel | null,
     escalations: EscalationDecision[],
+    budgetDecisions: BudgetDecision[],
     finalStatus: OrchestrationResult["finalStatus"],
     stoppedReason: string,
     finalResult?: CodexExecutionResult,
@@ -149,8 +191,22 @@ export class AutoModelOrchestrator {
       finalReasoning,
       totalAttempts: taskExecution.attempts.length,
       escalations,
+      budgetDecisions,
       ...(finalResult ? { finalResult } : {}),
       stoppedReason,
     };
+  }
+
+  private reasoningFor(model: ModelId, requested: ReasoningLevel, budget: BudgetDecision): ReasoningLevel {
+    return supportedReasoningFor(model, budget.reasoningCap ?? requested);
+  }
+
+  private async usageFor(provider: UsageProvider | undefined): Promise<import("../budget/types.ts").UsageSnapshot> {
+    if (!provider) return unknownUsageSnapshot();
+    try {
+      return await provider.getUsage();
+    } catch {
+      return unknownUsageSnapshot();
+    }
   }
 }

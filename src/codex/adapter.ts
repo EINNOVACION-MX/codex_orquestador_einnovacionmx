@@ -3,6 +3,8 @@ import { CodexStdioTransport, type CodexStdioTransportOptions } from "./stdio-tr
 import { CodexThreadManager } from "./thread-manager.ts";
 import { CodexTurnExecutor } from "./turn-executor.ts";
 import { AutoModelOrchestrator } from "../orchestration/auto-model-orchestrator.ts";
+import { CodexAppServerUsageProvider } from "../usage/codex-app-server-usage-provider.ts";
+import type { UsageSnapshot } from "../budget/types.ts";
 import type {
   CodexExecutionRequest,
   CodexExecutionResult,
@@ -38,6 +40,11 @@ export class CodexAdapter {
 
   public execute(input: CodexExecutionRequest): Promise<CodexExecutionResult> {
     return this.executor.execute(input);
+  }
+
+  /** Reads account limits through App Server and never creates a thread or turn. */
+  public getUsage(): Promise<UsageSnapshot> {
+    return new CodexAppServerUsageProvider(this.transport).getUsage();
   }
 
   public executeAuto(input: OrchestrationRequest): Promise<OrchestrationResult> {

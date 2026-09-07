@@ -2,6 +2,8 @@ import type { CodexExecutionRequest, CodexExecutionResult } from "../codex/types
 import type { EscalationDecision, EscalationPolicyInput } from "../escalation/types.ts";
 import type { TaskExecution } from "../history/types.ts";
 import type { BudgetProfileName, ClassificationResult, ModelId, ReasoningLevel } from "../types.ts";
+import type { BudgetDecision, UsageSnapshot } from "../budget/types.ts";
+import type { UsageProvider } from "../usage/types.ts";
 
 export interface ExecutionService {
   execute(input: CodexExecutionRequest): Promise<CodexExecutionResult>;
@@ -9,6 +11,15 @@ export interface ExecutionService {
 
 export interface EscalationPolicyService {
   decide(input: EscalationPolicyInput): EscalationDecision;
+}
+
+export interface BudgetPolicyService {
+  evaluate(input: {
+    usage?: UsageSnapshot;
+    routingDecision: ClassificationResult;
+    minimumModel?: ModelId;
+    escalation?: EscalationDecision;
+  }): BudgetDecision;
 }
 
 export interface AttemptLimits {
@@ -28,8 +39,20 @@ export interface OrchestrationRequest {
   taskExecution?: TaskExecution;
   minimumModel?: ModelId;
   budgetProfile?: BudgetProfileName;
+  usageSnapshot?: UsageSnapshot;
+  usageProvider?: UsageProvider;
   dryRun?: boolean;
   limits?: AttemptLimits;
+}
+
+export interface AutoModelOrchestratorOptions {
+  usageProvider?: UsageProvider;
+}
+
+export interface AutoModelOrchestratorDependencies extends AutoModelOrchestratorOptions {
+  executor: ExecutionService;
+  policy?: EscalationPolicyService;
+  budget?: BudgetPolicyService;
 }
 
 export type OrchestrationStatus =
@@ -47,6 +70,7 @@ export interface OrchestrationResult {
   finalReasoning: ReasoningLevel | null;
   totalAttempts: number;
   escalations: EscalationDecision[];
+  budgetDecisions: BudgetDecision[];
   finalResult?: CodexExecutionResult;
   stoppedReason: string;
 }
