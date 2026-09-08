@@ -1,7 +1,7 @@
 export const CX_IDENTITY = {
   name: "CX Auto Model Orchestrator",
   description: "Auto Model Orchestrator for OpenAI Codex",
-  version: "0.2.0",
+  version: "0.3.0",
   developer: "EINNOVACION MX",
   license: "MIT",
   repository: "https://github.com/EINNOVACION-MX/codex_orquestador_einnovacionmx",

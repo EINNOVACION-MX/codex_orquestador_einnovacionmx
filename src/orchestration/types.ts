@@ -1,4 +1,4 @@
-import type { CodexExecutionRequest, CodexExecutionResult } from "../codex/types.ts";
+import type { CodexExecutionEvent, CodexExecutionRequest, CodexExecutionResult } from "../codex/types.ts";
 import type { EscalationDecision, EscalationPolicyInput } from "../escalation/types.ts";
 import type { TaskExecution } from "../history/types.ts";
 import type { BudgetProfileName, ClassificationResult, ModelId, ReasoningLevel } from "../types.ts";
@@ -51,6 +51,7 @@ export interface OrchestrationRequest {
   dryRun?: boolean;
   limits?: AttemptLimits;
   attachments?: ResolvedCxAttachment[];
+  onEvent?: (event: CodexExecutionEvent) => void;
 }
 
 export interface AutoModelOrchestratorOptions {
@@ -83,5 +84,7 @@ export interface OrchestrationResult {
   executionBudget: ExecutionBudget;
   usageSnapshot: UsageSnapshot;
   finalResult?: CodexExecutionResult;
+  agentMessage?: string;
+  notices?: string[];
   stoppedReason: string;
 }

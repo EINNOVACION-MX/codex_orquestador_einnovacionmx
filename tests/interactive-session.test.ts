@@ -13,13 +13,15 @@ import type { UsageSnapshot } from "../src/budget/types.ts";
 const usage: UsageSnapshot = { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 73 }, weekly: { remainingPercent: 56 } };
 class Adapter implements CliAdapter {
   public calls: OrchestrationRequest[] = []; public fail = false; public unavailable = false;
+  public agentMessage: string | undefined; public notices: string[] | undefined;
   public interrupts = 0;
   public async getUsage(): Promise<UsageSnapshot> { if (this.fail) throw new Error("App Server unavailable"); return usage; }
   public async executeAuto(input: OrchestrationRequest): Promise<OrchestrationResult> {
     this.calls.push(input); if (this.fail) throw new Error("execution failed");
     const routing = input.routingDecision!; const threadId = input.threadId ?? "thread-1";
     const finalStatus = this.unavailable ? "unavailable" : "success";
-    return { taskExecution: { id: "x", prompt: input.prompt, routingDecision: routing, threadId, createdAt: usage.capturedAt, updatedAt: usage.capturedAt, attempts: [], finalStatus: this.unavailable ? "not-executed" : "success" }, finalStatus, finalModel: routing.selectedModel, finalReasoning: routing.reasoning, totalAttempts: 1, escalations: [], budgetDecisions: [], stoppedReason: "done", usageSnapshot: usage, budgetState: "conservative", executionBudget: { state: "conservative", reasoningCaps: {}, maxAttemptsPerModel: { luna: 2, terra: 2, sol: 1, astra: 1 }, maxTotalAttempts: 4, allowAutomaticEscalationToSol: true, allowAutomaticEscalationToAstra: false, reasons: [] } };
+    const finalResult = this.agentMessage || this.notices ? { requestedModel: routing.selectedModel, resolvedModel: routing.selectedModel, reasoning: routing.reasoning, threadId, status: "completed" as const, fallbackUsed: false, durationMs: 1, ...(this.agentMessage ? { agentMessage: this.agentMessage } : {}), ...(this.notices ? { notices: this.notices } : {}) } : undefined;
+    return { taskExecution: { id: "x", prompt: input.prompt, routingDecision: routing, threadId, createdAt: usage.capturedAt, updatedAt: usage.capturedAt, attempts: [], finalStatus: this.unavailable ? "not-executed" : "success" }, finalStatus, finalModel: routing.selectedModel, finalReasoning: routing.reasoning, totalAttempts: 1, escalations: [], budgetDecisions: [], stoppedReason: "done", usageSnapshot: usage, budgetState: "conservative", executionBudget: { state: "conservative", reasoningCaps: {}, maxAttemptsPerModel: { luna: 2, terra: 2, sol: 1, astra: 1 }, maxTotalAttempts: 4, allowAutomaticEscalationToSol: true, allowAutomaticEscalationToAstra: false, reasons: [] }, ...(finalResult ? { finalResult } : {}), ...(this.agentMessage ? { agentMessage: this.agentMessage } : {}), ...(this.notices ? { notices: this.notices } : {}) };
   }
   public async close(): Promise<void> {}
   public async interruptActiveTurn(): Promise<boolean> { this.interrupts++; return true; }
@@ -73,5 +75,13 @@ describe("InteractiveSession", () => {
     const s = session(); await s.value.start(); await s.value.handle("/agents security"); await s.value.handle("Revisa permisos RLS");
     assert.equal(s.value.state.agent, "security"); assert.equal(s.adapter.calls[0]?.routingDecision?.selectedModel, "sol"); assert.equal(s.adapter.calls[0]?.minimumModel, "sol");
     const again = new InteractiveSession(s.adapter, { write: () => undefined }, s.cwd); await again.start(); assert.equal(again.state.agent, "security");
+  });
+  it("renders the agent response before completion and warns when it is missing", async () => {
+    const adapter = new Adapter(); adapter.agentMessage = "El proyecto enruta automáticamente las tareas."; adapter.notices = ["Codex needs your input before it can continue."];
+    const s = session(adapter); await s.value.handle("Describe el proyecto");
+    assert.ok(s.output.indexOf("El proyecto enruta automáticamente las tareas.") < s.output.indexOf("✓ Completed"));
+    assert.match(s.output.join("\n"), /⚠ Codex needs your input/);
+    const missing = session(); await missing.value.handle("Describe el proyecto");
+    assert.match(missing.output.join("\n"), /Completed without a visible agent message/);
   });
 });

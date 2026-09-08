@@ -262,6 +262,36 @@ describe("CodexTurnExecutor", () => {
     assert.equal(taskExecution?.attempts[0]?.model.realId, "gpt-5.6-terra");
   });
 
+  it("captures agent deltas and the completed agent message before turn completion", async () => {
+    const events: string[] = [];
+    const transport = transportWithModels([model("gpt-5.6-terra")])
+      .respond("thread/start", { thread: { id: "thread-message" } })
+      .respond("turn/start", (_params: JsonRecord, fake: FakeTransport) => {
+        fake.emit({ method: "item/agentMessage/delta", params: { threadId: "thread-message", turnId: "turn-message", itemId: "item-message", delta: "El propósito " } });
+        fake.emit({ method: "item/agentMessage/delta", params: { threadId: "thread-message", turnId: "turn-message", itemId: "item-message", delta: "es enrutar modelos." } });
+        fake.emit({ method: "item/completed", params: { threadId: "thread-message", turnId: "turn-message", completedAtMs: 1, item: { id: "item-message", type: "agentMessage", text: "El propósito es enrutar modelos automáticamente." } } });
+        fake.emit({ method: "turn/completed", params: { threadId: "thread-message", turn: { id: "turn-message", status: "completed", durationMs: 2 } } });
+        return { turn: { id: "turn-message", status: "inProgress" } };
+      });
+    const result = await executor(transport).execute({ prompt: "Implementa módulo de clientes con Supabase", routingDecision: routeTask({ prompt: "Implementa módulo de clientes con Supabase" }), onEvent: (event) => events.push(event.type) });
+    assert.equal(result.agentMessage, "El propósito es enrutar modelos automáticamente.");
+    assert.equal(result.status, "completed");
+    assert.deepEqual(events, ["agent-message-delta", "agent-message-delta", "agent-message-completed"]);
+  });
+
+  it("captures approval and user-input notices without treating them as agent output", async () => {
+    const transport = transportWithModels([model("gpt-5.6-luna")])
+      .respond("thread/start", { thread: { id: "thread-notice" } })
+      .respond("turn/start", (_params: JsonRecord, fake: FakeTransport) => {
+        fake.emit({ method: "item/completed", params: { threadId: "thread-notice", turnId: "turn-notice", completedAtMs: 1, item: { id: "question", type: "agentMessage", text: "¿Procedo?", questions: [{ id: "q" }] } } });
+        fake.emit({ method: "turn/completed", params: { threadId: "thread-notice", turn: { id: "turn-notice", status: "completed" } } });
+        return { turn: { id: "turn-notice", status: "inProgress" } };
+      });
+    const result = await executor(transport).execute({ prompt: "Pregunta", routingDecision: routeTask({ prompt: "Pregunta" }) });
+    assert.equal(result.agentMessage, "¿Procedo?");
+    assert.deepEqual(result.notices, ["Codex needs your input before it can continue."]);
+  });
+
   it("sends text plus multiple local and URL images in the documented App Server format", async () => {
     const transport = transportWithModels([model("gpt-5.6-luna")])
       .respond("thread/start", { thread: { id: "thread-images" } })

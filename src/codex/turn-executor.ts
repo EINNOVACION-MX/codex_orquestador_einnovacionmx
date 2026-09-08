@@ -14,21 +14,28 @@ import type {
 } from "./types.ts";
 import { attachmentInputs } from "../attachments.ts";
 
-function isTurnCompletedFor(
-  notification: CodexNotification,
-  threadId: string,
-  turnId: string,
-): notification is CodexNotification & { params: { threadId: string; turn: CodexTurn } } {
-  const params = notification.params;
-  const turn = params.turn;
-  return (
-    notification.method === "turn/completed" &&
-    params.threadId === threadId &&
-    typeof turn === "object" &&
-    turn !== null &&
-    "id" in turn &&
-    (turn as CodexTurn).id === turnId
-  );
+interface CompletedTurnCapture {
+  turn: CodexTurn;
+  agentMessage?: string;
+  notices: string[];
+}
+
+function agentText(item: unknown): string | undefined {
+  if (typeof item !== "object" || item === null) return undefined;
+  const record = item as Record<string, unknown>;
+  return record.type === "agentMessage" && typeof record.text === "string" && record.text.trim()
+    ? record.text.trim()
+    : undefined;
+}
+
+function noticeFor(notification: CodexNotification): string | undefined {
+  if (notification.method === "autoApprovalReview/strictReviewRequired") return "Approval is required before Codex can continue.";
+  if (notification.method === "item/autoApprovalReview/started") return "Codex is waiting for approval review.";
+  if (notification.method !== "item/completed") return undefined;
+  const item = notification.params.item;
+  if (typeof item !== "object" || item === null) return undefined;
+  const questions = (item as Record<string, unknown>).questions;
+  return Array.isArray(questions) && questions.length > 0 ? "Codex needs your input before it can continue." : undefined;
 }
 
 function resultFromResolution(
@@ -142,7 +149,7 @@ export class CodexTurnExecutor {
         realModelId: resolution.realModelId,
       });
       activeThreadId = managedThread.threadId;
-      const turnWaiter = this.waitForTurnCompletion(managedThread.threadId);
+      const turnWaiter = this.waitForTurnCompletion(managedThread.threadId, input.onEvent);
       const startedTurn = await this.transport.request<CodexTurnResponse>("turn/start", {
         threadId: managedThread.threadId,
         input: [{ type: "text", text: input.prompt }, ...attachmentInputs(input.attachments ?? [])],
@@ -162,7 +169,7 @@ export class CodexTurnExecutor {
       }
 
       const completed = await turnWaiter.wait(startedTurn.turn.id);
-      return withHistory(this.executionResult(resolution, managedThread.threadId, completed, startedAt));
+      return withHistory(this.executionResult(resolution, managedThread.threadId, completed.turn, startedAt, completed.agentMessage, completed.notices));
     } catch (error) {
       return withHistory({
         ...resultFromResolution(
@@ -176,36 +183,74 @@ export class CodexTurnExecutor {
     } finally { this.activeTurn = undefined; }
   }
 
-  private waitForTurnCompletion(threadId: string): {
-    wait: (turnId: string) => Promise<CodexTurn>;
+  private waitForTurnCompletion(threadId: string, onEvent?: CodexExecutionRequest["onEvent"]): {
+    wait: (turnId: string) => Promise<CompletedTurnCapture>;
     dispose: () => void;
   } {
-    const completedTurns = new Map<string, CodexTurn>();
-    const waiters = new Map<string, (turn: CodexTurn) => void>();
+    const completedTurns = new Map<string, CompletedTurnCapture>();
+    const waiters = new Map<string, (turn: CompletedTurnCapture) => void>();
+    const messages = new Map<string, Map<string, string>>();
+    const notices = new Map<string, string[]>();
+    const addNotice = (turnId: string, notice: string): void => {
+      const values = notices.get(turnId) ?? [];
+      if (!values.includes(notice)) values.push(notice);
+      notices.set(turnId, values);
+    };
+    const messageFor = (turnId: string): string | undefined => {
+      const values = [...(messages.get(turnId)?.values() ?? [])].filter(Boolean);
+      return values.length ? values.join("\n\n") : undefined;
+    };
     const removeListener = this.transport.onNotification((notification) => {
-      if (notification.method !== "turn/completed") return;
       const params = notification.params;
-      if (params.threadId !== threadId || typeof params.turn !== "object" || params.turn === null) return;
+      if (params.threadId !== threadId) return;
+      const turnId = typeof params.turnId === "string" ? params.turnId : undefined;
+      if (notification.method === "item/agentMessage/delta" && typeof params.itemId === "string" && typeof params.delta === "string") {
+        if (!turnId) return;
+        const values = messages.get(turnId) ?? new Map<string, string>();
+        values.set(params.itemId, `${values.get(params.itemId) ?? ""}${params.delta}`);
+        messages.set(turnId, values);
+        onEvent?.({ type: "agent-message-delta", delta: params.delta });
+        return;
+      }
+      if (notification.method === "item/completed") {
+        if (!turnId) return;
+        const message = agentText(params.item);
+        const item = params.item as Record<string, unknown> | undefined;
+        if (message && typeof item?.id === "string") {
+          const values = messages.get(turnId) ?? new Map<string, string>();
+          values.set(item.id, message);
+          messages.set(turnId, values);
+          onEvent?.({ type: "agent-message-completed", message });
+        }
+        const notice = noticeFor(notification);
+        if (notice) { addNotice(turnId, notice); onEvent?.({ type: "notice", message: notice }); }
+        return;
+      }
+      const notice = noticeFor(notification);
+      if (notice) { if (turnId) { addNotice(turnId, notice); onEvent?.({ type: "notice", message: notice }); } return; }
+      if (notification.method !== "turn/completed" || typeof params.turn !== "object" || params.turn === null) return;
       const turn = params.turn as CodexTurn;
       if (typeof turn.id !== "string") return;
+      const message = messageFor(turn.id);
+      const completed: CompletedTurnCapture = { turn, ...(message ? { agentMessage: message } : {}), notices: notices.get(turn.id) ?? [] };
       const waiter = waiters.get(turn.id);
       if (waiter) {
         waiters.delete(turn.id);
         removeListener();
-        waiter(turn);
+        waiter(completed);
         return;
       }
-      completedTurns.set(turn.id, turn);
+      completedTurns.set(turn.id, completed);
     });
 
     return {
-      wait: async (turnId: string): Promise<CodexTurn> => {
+      wait: async (turnId: string): Promise<CompletedTurnCapture> => {
       const completed = completedTurns.get(turnId);
       if (completed) {
         removeListener();
         return completed;
       }
-      return new Promise<CodexTurn>((resolve) => {
+      return new Promise<CompletedTurnCapture>((resolve) => {
         waiters.set(turnId, resolve);
       });
       },
@@ -218,6 +263,8 @@ export class CodexTurnExecutor {
     threadId: string,
     turn: CodexTurn,
     startedAt: number,
+    agentMessage?: string,
+    notices: string[] = [],
   ): CodexExecutionResult {
     return {
       requestedModel: resolution.requestedModel,
@@ -228,6 +275,8 @@ export class CodexTurnExecutor {
       fallbackUsed: resolution.fallbackUsed,
       durationMs: turn.durationMs ?? Math.round(performance.now() - startedAt),
       ...(resolution.realModelId ? { realModelId: resolution.realModelId } : {}),
+      ...(agentMessage ? { agentMessage } : {}),
+      ...(notices.length ? { notices } : {}),
       ...(turn.error?.message ? { error: turn.error.message } : {}),
     };
   }

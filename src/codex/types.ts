@@ -22,6 +22,11 @@ export interface CodexNotification {
 
 export type CodexNotificationListener = (notification: CodexNotification) => void;
 
+export type CodexExecutionEvent =
+  | { type: "agent-message-delta"; delta: string }
+  | { type: "agent-message-completed"; message: string }
+  | { type: "notice"; message: string };
+
 export interface CodexRawModel {
   id: string;
   model: string;
@@ -108,6 +113,7 @@ export interface CodexExecutionRequest {
   taskExecution?: TaskExecution;
   testResult?: TestResult;
   attachments?: ResolvedCxAttachment[];
+  onEvent?: (event: CodexExecutionEvent) => void;
 }
 
 export type CodexExecutionStatus =
@@ -129,5 +135,9 @@ export interface CodexExecutionResult {
   durationMs: number;
   realModelId?: string | null;
   taskExecution?: TaskExecution;
+  /** Visible final text returned by the Codex agent for this turn. */
+  agentMessage?: string;
+  /** A non-blocking notice that needs to be surfaced to the person using CX. */
+  notices?: string[];
   error?: string;
 }

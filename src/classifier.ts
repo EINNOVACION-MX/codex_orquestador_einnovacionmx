@@ -81,6 +81,8 @@ export function classifyTask(request: ClassificationRequest): ClassificationDraf
   ]);
   const isCritical = includesAny(text, ["critico", "critical", "incidente", "caida", "perdida de datos"]);
   const failedAttempts = inferredAttempts(text, request);
+  const investigationIntent = includesAny(text, ["verifica", "verificar", "investiga", "investigar", "corrobora", "corroborar", "revisa", "revisar", "analiza", "analizar", "diagnostica", "diagnosticar"]);
+  const complexInvestigationScope = includesAny(text, ["base de datos", "database", "logica de negocio", "business logic", "debug", "bug", "error", "reporte", "report", "varios archivos", "multiples archivos", "multiple files", "existing report", "informe existente"]);
 
   if (taskType === "feature" && (domain === "crm" || detectedDatabaseWork || domain === "backend")) {
     complexity += 1;
@@ -124,6 +126,11 @@ export function classifyTask(request: ClassificationRequest): ClassificationDraf
   if (failedAttempts > 0) {
     complexity += Math.min(failedAttempts, 2);
     addReason(reasons, "previous attempts did not resolve the issue");
+  }
+  if (investigationIntent && complexInvestigationScope) {
+    complexity = Math.max(complexity, 3);
+    risk = Math.max(risk, 2);
+    addReason(reasons, "investigation across existing implementation");
   }
 
   complexity = Math.min(10, complexity);

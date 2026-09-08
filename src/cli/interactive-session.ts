@@ -6,6 +6,7 @@ import type { EscalationPolicyService } from "../orchestration/types.ts";
 import { routeTask } from "../router.ts";
 import type { BudgetState, UsageSnapshot } from "../budget/types.ts";
 import type { ModelId, ReasoningLevel } from "../types.ts";
+import type { CodexExecutionEvent } from "../codex/types.ts";
 import type { CxAttachment, ResolvedCxAttachment } from "../types.ts";
 import { AttachmentError, validateAttachments } from "../attachments.ts";
 import { formatStatus } from "./format.ts";
@@ -17,7 +18,7 @@ import { CodexCapabilityRegistry, CX_COMMANDS } from "../capabilities/codex-capa
 import type { CodexCapabilitySnapshot } from "../capabilities/types.ts";
 import { CX_AGENTS, getCxAgent, strongerModel, type CxAgentId } from "../agents/cx-agent-registry.ts";
 
-export interface SessionIo { write(text: string): void; clear?(): void; }
+export interface SessionIo { write(text: string): void; stream?(event: CodexExecutionEvent): void; clear?(): void; }
 export interface InteractiveSessionState {
   cwd: string; threadId?: string; messageCount: number; startedAt: string;
   profile: CliProfile; model?: ModelId; reasoning?: ReasoningLevel; dryRun: boolean; escalationEnabled: boolean;
@@ -126,7 +127,7 @@ export class InteractiveSession {
     try {
       this.project ??= this.projects.open(this.state.cwd);
       const agentContext = agent?.context ? `[CX agent: ${agent.name}] ${agent.context}\n` : "";
-      const result = await this.adapter.executeAuto({ prompt: `${agentContext}${this.projects.prompt(this.projects.envelope(this.project), prompt)}`, routingDecision, usageSnapshot: usage, ...(attachments.length ? { attachments } : {}), ...(this.state.threadId ? { threadId: this.state.threadId } : {}), ...(minimumModel !== "luna" ? { minimumModel } : {}), ...(this.state.reasoning ? { minimumReasoning: this.state.reasoning } : {}), ...(this.state.profile !== "auto" ? { budgetStateCap: PROFILE_STATE[this.state.profile] } : {}), dryRun: this.state.dryRun }, this.state.escalationEnabled ? {} : { policy: new NoEscalation() });
+      const result = await this.adapter.executeAuto({ prompt: `${agentContext}${this.projects.prompt(this.projects.envelope(this.project), prompt)}`, routingDecision, usageSnapshot: usage, ...(attachments.length ? { attachments } : {}), ...(this.state.threadId ? { threadId: this.state.threadId } : {}), ...(minimumModel !== "luna" ? { minimumModel } : {}), ...(this.state.reasoning ? { minimumReasoning: this.state.reasoning } : {}), ...(this.state.profile !== "auto" ? { budgetStateCap: PROFILE_STATE[this.state.profile] } : {}), ...(this.io.stream ? { onEvent: this.io.stream } : {}), dryRun: this.state.dryRun }, this.state.escalationEnabled ? {} : { policy: new NoEscalation() });
       this.state.attachments = [];
       this.state.messageCount++;
       const nextThread = result.finalResult?.threadId ?? result.taskExecution.threadId ?? this.state.threadId;
@@ -134,7 +135,12 @@ export class InteractiveSession {
       if (this.project && nextThread) { if (!this.project.threads.threads.some((t) => t.threadId === nextThread)) this.project.threads.threads.push({ threadId: nextThread, createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), status: "active" }); this.project.threads.activeThreadId = nextThread; this.projects.saveThreads(this.project.metadata.rootPath, this.project.threads); }
       for (const escalation of result.escalations) if (escalation.action === "escalate-model" && escalation.nextModel) this.io.write(`↑ Escalation → ${escalation.nextModel} ${escalation.nextReasoning ?? ""}`.trim());
       if (result.totalAttempts > 1) this.io.write(`↻ Retry → ${result.finalModel ?? budget.preferredModel} ${result.finalReasoning ?? selectedReasoning}`);
-      if (result.finalStatus === "success" || result.finalStatus === "dry-run") this.io.write("✓ Completed");
+      for (const notice of result.notices ?? []) this.io.write(`⚠ ${notice}`);
+      if (result.agentMessage) this.io.write(result.agentMessage);
+      if (result.finalStatus === "success" || result.finalStatus === "dry-run") {
+        if (!this.state.dryRun && result.finalStatus === "success" && !result.agentMessage) this.io.write("⚠ Completed without a visible agent message.");
+        this.io.write("✓ Completed");
+      }
       else { if (result.finalStatus === "unavailable" && this.project) { delete this.state.threadId; delete this.project.threads.activeThreadId; this.projects.saveThreads(this.project.metadata.rootPath, this.project.threads); } this.io.write(`✗ ${result.finalStatus}\nReason: ${result.stoppedReason}`); }
     } catch (error) { this.io.write(`✗ Execution failed\nReason: ${error instanceof Error ? error.message : "Unknown error"}`); }
     return "continue";

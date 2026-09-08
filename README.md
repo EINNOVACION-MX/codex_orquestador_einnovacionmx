@@ -16,6 +16,7 @@ CX routes tasks deterministically before execution. Luna handles small mechanica
 - Usage-aware budget controls, fallback protection and escalation policy.
 - Persistent, compact project context in local `.cx` state.
 - CLI, interactive mode, native Codex MCP bridge and image references.
+- Transcript-first terminal UI with real scroll, follow mode, compact status and progressive agent output.
 - Slash command palette, dynamic App Server capability discovery and CX agent constraints.
 
 ## Requirements
@@ -56,7 +57,7 @@ dryRun = false
 
 ## Interactive Mode
 
-Run `cx` without arguments. In a capable terminal, CX opens a `blessed` TUI with header, persistent status panel, conversation history and focused input. In non-TTY or `TERM=dumb` environments it keeps the compatible plain-text session. Commands include:
+Run `cx` without arguments. In a capable terminal, CX opens a transcript-first `blessed` TUI: the conversation occupies the terminal, the input remains fixed at the bottom, and the compact status bar remains at the top. In non-TTY or `TERM=dumb` environments it keeps the compatible plain-text session. Commands include:
 
 ```text
 /about
@@ -81,6 +82,12 @@ Run `cx` without arguments. In a capable terminal, CX opens a `blessed` TUI with
 
 `/about` displays the project identity, version, license, repository and independence notice.
 Type `/` to open the terminal command palette; type a prefix such as `/ag` to filter it, then use arrows, Enter, Tab and Esc to navigate it. CX Agents add project-scoped routing constraints while AUTO still selects the model; the Security and Architecture agents require Sol or Astra.
+
+### Transcript navigation
+
+The transcript retains every interaction in the current session. Use the mouse wheel, PageUp/PageDown, Home/End, or Ctrl+Up/Ctrl+Down to read it. While viewing the latest output, CX follows new content automatically. If you scroll upward, CX preserves your position and shows `↓ New output` until you return to the end.
+
+The slash palette appears above the input instead of replacing the transcript. Press **F2** to toggle the detailed status panel; `/status` remains the full text status command. Progressive App Server message deltas update one CX transcript entry, while concise activity, retry, escalation, warning and completion events remain visible in sequence.
 
 ## Codex Native Bridge
 

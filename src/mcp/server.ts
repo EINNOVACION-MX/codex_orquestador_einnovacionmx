@@ -13,7 +13,7 @@ async function main() {
     let request: RpcRequest; try { request = JSON.parse(line) as RpcRequest; } catch { return; }
     if (request.id === undefined) return;
     try {
-      if (request.method === "initialize") send(request.id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "cx-bridge", version: "0.2.0" } });
+      if (request.method === "initialize") send(request.id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "cx-bridge", version: "0.3.0" } });
       else if (request.method === "tools/list") send(request.id, { tools: mcpTools });
       else if (request.method === "tools/call") { const params = request.params as { name?: string; arguments?: { task?: string; images?: Array<{ path?: string; url?: string; name?: string }> } }; const task = params.arguments?.task ?? ""; const images = params.arguments?.images?.map((image) => ({ type: "image" as const, ...image })); const value = params.name === "cx_route" ? await bridge.route(task, images) : params.name === "cx_execute" ? await bridge.execute(task, images) : params.name === "cx_status" ? await bridge.status() : params.name === "cx_project" ? bridge.project() : params.name === "cx_context" ? bridge.context() : params.name === "cx_capabilities" ? await bridge.capabilities() : params.name === "cx_agents" ? bridge.agents() : (() => { throw new CxBridgeError("Unknown CX tool."); })(); send(request.id, { content: [{ type: "text", text: JSON.stringify(value) }] }); }
       else send(request.id, undefined, { code: -32601, message: "Method not found" });

@@ -33,6 +33,9 @@ export function formatTask(output: CliTaskOutput): string {
       lines.push(`Execution budget: ${result.executionBudget.maxTotalAttempts} total attempts`, `Limits: ${limits}`, `Restrictions: ${result.executionBudget.reasons.join(" ")}`);
     }
     for (const attempt of result.taskExecution.attempts) lines.push(`Attempt ${attempt.sequence}: ${attempt.model.logical ?? "unavailable"} ${attempt.reasoning ?? ""} — ${attempt.status}`.trim());
+    for (const notice of result.notices ?? []) lines.push(`Notice: ${notice}`);
+    if (result.agentMessage) lines.push("", result.agentMessage);
+    else if (result.finalStatus === "success") lines.push("Notice: Completed without a visible agent message.");
     lines.push("", `Final model: ${result.finalModel ?? "unavailable"}`, `Total attempts: ${result.totalAttempts}`, `Status: ${result.finalStatus}`);
   }
   return lines.join("\n");

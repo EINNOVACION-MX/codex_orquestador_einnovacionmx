@@ -87,7 +87,7 @@ export class CodexStdioTransport implements CodexTransport {
       clientInfo: {
         name: "codex-auto-model-router",
         title: "Codex Auto Model Router",
-        version: "0.2.0",
+        version: "0.3.0",
       },
     });
     transport.notify("initialized", {});

@@ -53,9 +53,9 @@ describe("CLI parsing", () => {
   });
 
   it("formats version and help without adding branding to JSON task output", () => {
-    assert.match(formatVersion(), /^CX Auto Model Orchestrator 0\.2\.0$/);
+    assert.match(formatVersion(), /^CX Auto Model Orchestrator 0\.3\.0$/);
     assert.match(formatHelp(), /--image, -i <path>/);
-    assert.match(execFileSync(process.execPath, ["--experimental-strip-types", "bin/cx.js", "--version"], { cwd: process.cwd(), encoding: "utf8" }), /^CX Auto Model Orchestrator 0\.2\.0/);
+    assert.match(execFileSync(process.execPath, ["--experimental-strip-types", "bin/cx.js", "--version"], { cwd: process.cwd(), encoding: "utf8" }), /^CX Auto Model Orchestrator 0\.3\.0/);
   });
 });
 
@@ -78,12 +78,14 @@ describe("CLI application", () => {
 
   it("writes stable JSON with no human output", async () => {
     const response = await new CliApplication(new FakeAdapter()).run(parseCliArgs(["Cambia el padding", "--json"]));
-    const json = JSON.parse(response.stdout) as { task: { domain: string }; usageSnapshot: UsageSnapshot; budgetState: string };
+    const json = JSON.parse(response.stdout) as { task: { domain: string }; usageSnapshot: UsageSnapshot; budgetState: string; orchestrationResult: OrchestrationResult };
     assert.equal(json.task.domain, "frontend");
     assert.equal(json.usageSnapshot.weekly?.remainingPercent, 59);
     assert.equal(json.budgetState, "conservative");
     assert.equal(response.stderr, "");
     assert.equal(response.stdout.includes("Developed by EINNOVACION MX"), false);
+    assert.equal(json.orchestrationResult.finalStatus, "success");
+    assert.equal(typeof json.orchestrationResult.finalResult, "undefined");
   });
 
   it("reads status without executing an orchestration", async () => {

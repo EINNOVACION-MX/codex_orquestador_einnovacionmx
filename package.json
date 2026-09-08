@@ -1,6 +1,6 @@
 {
   "name": "cx-auto-model-orchestrator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Auto Model Orchestrator for OpenAI Codex",

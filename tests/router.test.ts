@@ -136,4 +136,15 @@ describe("Task Classifier and Model Router", () => {
     assert.equal(result.selectedModel, "sol");
     assert.equal(result.reasoning, "low");
   });
+
+  it("starts evidence-based database and business-logic investigations at Terra Medium", () => {
+    for (const prompt of [
+      "Verifica el reporte existente de la base de datos y corrobora la lógica de negocio en varios archivos",
+      "Investiga el error de debugging en múltiples archivos y revisa el informe existente",
+    ]) {
+      const result = routeTask({ prompt });
+      assert.equal(result.selectedModel, "terra");
+      assert.equal(result.reasoning, "medium");
+    }
+  });
 });

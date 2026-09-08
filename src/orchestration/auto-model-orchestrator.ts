@@ -127,6 +127,7 @@ export class AutoModelOrchestrator {
         minimumModel,
         ...(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}),
         ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
         taskExecution,
       });
       taskExecution = finalResult.taskExecution ?? historyBuilder.complete(taskExecution, finalResult);
@@ -222,6 +223,8 @@ export class AutoModelOrchestrator {
       executionBudget,
       usageSnapshot,
       ...(finalResult ? { finalResult } : {}),
+      ...(finalResult?.agentMessage ? { agentMessage: finalResult.agentMessage } : {}),
+      ...(finalResult?.notices?.length ? { notices: finalResult.notices } : {}),
       stoppedReason,
     };
   }
