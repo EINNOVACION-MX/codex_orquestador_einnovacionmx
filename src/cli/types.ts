@@ -2,11 +2,12 @@ import type { BudgetState, UsageSnapshot } from "../budget/types.ts";
 import type { ModelId, ReasoningLevel, ClassificationResult } from "../types.ts";
 import type { CxAttachment } from "../types.ts";
 import type { OrchestrationRequest, OrchestrationResult } from "../orchestration/types.ts";
+import type { CodexCapabilitySnapshot } from "../capabilities/types.ts";
 
 export type CliProfile = "auto" | "balanced" | "conservative" | "eco" | "emergency";
 
 export interface CliOptions {
-  command: "run" | "status" | "interactive";
+  command: "run" | "status" | "interactive" | "version" | "help";
   prompt?: string;
   dryRun: boolean;
   json: boolean;
@@ -28,6 +29,7 @@ export interface CliAdapter {
   executeAuto(input: OrchestrationRequest, options?: { policy?: import("../orchestration/types.ts").EscalationPolicyService }): Promise<OrchestrationResult>;
   close(): Promise<void>;
   interruptActiveTurn?(): Promise<boolean>;
+  discoverCapabilities?(cwd?: string): Promise<CodexCapabilitySnapshot>;
 }
 
 export interface CliTaskOutput {

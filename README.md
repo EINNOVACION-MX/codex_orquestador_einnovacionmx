@@ -1,16 +1,29 @@
-# Codex Auto Model Router
+# CX Auto Model Orchestrator
 
-Router determinista para elegir Luna, Terra, Sol o Astra y el nivel de razonamiento apropiado antes de enviar una tarea a Codex.
+**Auto Model Orchestrator for OpenAI Codex**
+Developed by **EINNOVACION MX**
 
-Está pensado para priorizar el uso eficiente de ChatGPT Plus: Terra resuelve la implementación cotidiana; Luna absorbe trabajo mecánico; Sol y Astra se reservan para problemas que justifican su consumo.
+CX is an independent, open source CLI that classifies engineering tasks, selects a suitable Codex model and reasoning level, and applies usage-aware execution controls.
 
-## Estado
+## What it does
 
-Las fases 1 y 2 están implementadas: clasificación, política de selección, perfiles de presupuesto, descubrimiento dinámico de modelos, threads y ejecución mediante Codex App Server.
+CX routes tasks deterministically before execution. Luna handles small mechanical changes, Terra is the primary builder, and Sol or Astra are reserved for work that merits their extra reasoning cost.
 
-## Instalación
+## Features
 
-Requiere Node.js 22 o posterior.
+- Deterministic task classification and model routing.
+- Dynamic discovery of models and compatible reasoning through Codex App Server.
+- Usage-aware budget controls, fallback protection and escalation policy.
+- Persistent, compact project context in local `.cx` state.
+- CLI, interactive mode, native Codex MCP bridge and image references.
+- Slash command palette, dynamic App Server capability discovery and CX agent constraints.
+
+## Requirements
+
+- Node.js 22 or later.
+- Codex CLI installed and authenticated for model discovery or execution.
+
+## Installation
 
 ```powershell
 npm install
@@ -18,26 +31,22 @@ npm run build
 npm link
 ```
 
-## CLI AUTO
+`private: true` remains enabled to prevent accidental npm publication. Remove it only when a deliberate publishing process is ready.
 
-Después de `npm link`, usa el router directamente:
+## CLI Usage
 
 ```powershell
 cx "Cambia el padding del navbar"
 cx "Implementa módulo de clientes con Supabase" --dry-run
-cx "Replica este login" --image .\referencias\login.png --dry-run
+cx "Replica este login" --image .\references\login.png --dry-run
 cx status
+cx --version
+cx --help
 ```
 
-La CLI usa `auto` por defecto. Puedes imponer un techo de consumo con `--profile conservative|eco|emergency`; nunca relaja una cuota real más restrictiva. También admite `--json`, `--model luna|terra|sol|astra`, `--reasoning <level>` y `--no-escalation`.
+The default is AUTO. Optional overrides are `--profile conservative|eco|emergency`, `--model luna|terra|sol|astra`, `--reasoning <level>` and `--no-escalation`. Use `--json` for stable automation output; it never includes startup branding in stdout.
 
-### Referencias visuales
-
-Usa `--image` o `-i` una o varias veces para aportar PNG, JPEG, WebP o GIF del proyecto. Las referencias se validan antes de ejecutar: deben estar dentro del workspace, usar una extensión permitida, pesar hasta 10 MB y no pueden ser `.env`, claves ni rutas sensibles. También se admiten URLs HTTPS desde las herramientas MCP. Los archivos se envían a Codex como `localImage` y nunca se guardan en `.cx` ni se serializan en la salida JSON.
-
-En modo interactivo, `/image ruta.png` prepara una imagen para el siguiente mensaje, `/images` lista las pendientes y `/images clear` las descarta. Tras enviar correctamente el siguiente mensaje, la lista se limpia.
-
-Un archivo opcional `.cxrc` puede contener:
+An optional `.cxrc` can define defaults:
 
 ```ini
 profile = auto
@@ -45,86 +54,69 @@ output = human
 dryRun = false
 ```
 
-## Validación
+## Interactive Mode
 
-```powershell
-npm test
-npm run build
+Run `cx` without arguments. In a capable terminal, CX opens a `blessed` TUI with header, persistent status panel, conversation history and focused input. In non-TTY or `TERM=dumb` environments it keeps the compatible plain-text session. Commands include:
+
+```text
+/about
+/status
+/image <path>
+/images
+/images clear
+/project
+/context
+/threads
+/agents
+/skills
+/plugins
+/mcp
+/tools
+/model
+/reasoning
+/profile
+/new
+/exit
 ```
 
-## Uso desde código
-
-```ts
-import { routeTask } from "./src/index.ts";
-
-const decision = routeTask({
-  prompt: "Implementa módulo de clientes con Supabase",
-});
-
-console.log(decision);
-// {
-//   domain: "crm",
-//   taskType: "feature",
-//   complexity: 5,
-//   risk: 3,
-//   selectedModel: "terra",
-//   reasoning: "medium",
-//   confidence: 0.96,
-//   reasons: ["feature full-stack", "database modification", ...]
-// }
-```
-
-## Ejecución con Codex
-
-Codex debe estar instalado y autenticado en el entorno de ejecución. `CodexAdapter` se comunica con `codex app-server` por JSON-RPC en `stdio`; no usa una clave de API separada.
-
-```ts
-import { CodexAdapter, routeTask } from "./src/index.ts";
-
-const prompt = "Implementa módulo de clientes con Supabase";
-const adapter = await CodexAdapter.connect();
-
-try {
-  const result = await adapter.execute({
-    prompt,
-    routingDecision: routeTask({ prompt }),
-    dryRun: true,
-  });
-  console.log(result);
-} finally {
-  await adapter.close();
-}
-```
-
-Quita `dryRun` para crear o continuar un thread y ejecutar el turn. El resultado contiene `requestedModel`, `resolvedModel`, `reasoning`, `threadId`, `status`, `fallbackUsed`, `durationMs` y, cuando corresponde, `error`. Usa `minimumModel: "sol"` para bloquear degradaciones por debajo de Sol.
-
-Los perfiles disponibles son `economy`, `balanced` y `quality`:
-
-```ts
-routeTask({
-  prompt: "Analiza race condition en pagos",
-  budgetProfile: "economy",
-});
-// Terra/high: conserva consumo para una cuenta Plus.
-```
-
-Consulta [ARCHITECTURE.md](ARCHITECTURE.md) para decisiones de diseño y [la guía de planificación](outputs/guia-auto-model-codex.md) para la futura integración con Codex App Server.
+`/about` displays the project identity, version, license, repository and independence notice.
+Type `/` to open the terminal command palette; type a prefix such as `/ag` to filter it, then use arrows, Enter, Tab and Esc to navigate it. CX Agents add project-scoped routing constraints while AUTO still selects the model; the Security and Architecture agents require Sol or Astra.
 
 ## Codex Native Bridge
 
-Codex puede cargar el plugin local desde [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json). El plugin inicia `cx mcp` bajo demanda y expone `cx_route`, `cx_execute`, `cx_status`, `cx_project` y `cx_context`. Las herramientas comparten el mismo `ProjectContextService` y `.cx` que la CLI.
+The local plugin exposes `cx_route`, `cx_execute`, `cx_status`, `cx_project`, `cx_context`, `cx_capabilities` and `cx_agents` through MCP and shares the same project state as the CLI.
 
 ```powershell
 codex plugin marketplace add "C:\ruta\al\Orquestador_Codex"
 codex plugin add cx-native-bridge@cx-local
 ```
 
-En Codex Desktop, agrega el marketplace local, instala **CX Native Bridge** y actívalo desde **Sources → Use plugins** en un task. La integración es explícita: no intercepta prompts normales ni puede cambiar el modelo del turno anfitrión. `cx_execute` crea su propio turn mediante el App Server con la decisión de CX.
+Enable **CX Native Bridge** in Codex Desktop through **Sources → Use plugins**. The integration is explicit: it does not intercept ordinary prompts or change the host turn model. `cx_execute` creates its own App Server turn using CX's decision.
 
-### Native CX Mode
+## Multimodal Usage
 
-Dentro de un task con el plugin activado, pide explícitamente: “Usa CX para implementar recuperación de contraseña”. Para consultar la selección sin ejecutar: “Con CX, ¿qué modelo usarías para esto?”. Para cuota, proyecto o contexto: “Muéstrame mi cuota de CX”, “¿Qué proyecto reconoce CX?” o “Muéstrame el contexto resumido de CX”.
+Use `--image` or `-i` repeatedly for workspace PNG, JPEG, WebP or GIF references, each up to 10 MB. MCP tools also accept HTTPS image URLs. CX sends them to Codex App Server as `localImage` or `image` inputs alongside text.
 
-CX delega directamente mediante `cx_execute`; el hilo del task nativo permanece separado del thread interno que CX conserva en `.cx/threads.json`. Los resultados muestran proyecto, tipo de tarea, modelo y reasoning, presupuesto, intentos, escalaciones, estado, resumen y el thread interno cuando corresponde.
+Images must be inside the workspace; `.env`, credential-like paths, private keys and unsupported formats are rejected. Image bytes and base64 payloads are never stored in `.cx` or emitted by CLI JSON. Native chat attachments are not automatically available to MCP: pass an accessible path or HTTPS URL explicitly.
 
-Las herramientas `cx_route` y `cx_execute` aceptan un arreglo `images` con rutas de imágenes dentro del workspace o URLs HTTPS. Los adjuntos cargados directamente en el chat nativo no se transfieren automáticamente al MCP: indica una ruta o URL accesible de forma explícita.
+## Architecture
+
+The core flow is:
+
+```text
+TaskClassifier → ModelRouter → BudgetController → Codex Adapter → Codex App Server
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the implementation decisions and boundaries.
+
+## Security
+
+`.cx/`, `.env` and `.env.*` are ignored by Git. The project context excludes secrets, credentials, private keys, dependencies and generated directories. Before publishing, run the test suite and inspect `git status` to confirm that no local state or credentials are staged.
+
+## Open Source
+
+The repository is prepared for GitHub at [EINNOVACION-MX/codex_orquestador_einnovacionmx](https://github.com/EINNOVACION-MX/codex_orquestador_einnovacionmx). It is licensed under [MIT](LICENSE). Review release metadata and remove `private: true` only when publication is intentional.
+
+## Disclaimer
+
+CX Auto Model Orchestrator is an independent project developed by EINNOVACION MX. OpenAI and Codex are trademarks and products of their respective owners. CX is not an official OpenAI product, is not affiliated with OpenAI, and is not developed by OpenAI.

@@ -1,9 +1,24 @@
 {
-  "name": "codex-auto-model-router",
-  "version": "0.1.0",
+  "name": "cx-auto-model-orchestrator",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Deterministic task classification and model routing for Codex.",
+  "description": "Auto Model Orchestrator for OpenAI Codex",
+  "author": "EINNOVACION MX",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EINNOVACION-MX/codex_orquestador_einnovacionmx.git"
+  },
+  "homepage": "https://github.com/EINNOVACION-MX/codex_orquestador_einnovacionmx#readme",
+  "keywords": [
+    "codex",
+    "openai-codex",
+    "cli",
+    "model-routing",
+    "orchestration",
+    "typescript"
+  ],
   "bin": {
     "cx": "./bin/cx.js"
   },
@@ -13,7 +28,11 @@
     "test:watch": "node --experimental-strip-types --test --watch tests/*.test.ts"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.25",
     "@types/node": "^22.19.11",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81"
   }
 }

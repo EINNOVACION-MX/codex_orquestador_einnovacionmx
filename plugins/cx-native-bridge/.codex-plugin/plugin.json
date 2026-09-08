@@ -1,6 +1,6 @@
 {
   "name": "cx-native-bridge",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Use CX Auto Model routing and shared project context from Codex.",
   "author": { "name": "EINNOVACION MX" },
   "license": "MIT",

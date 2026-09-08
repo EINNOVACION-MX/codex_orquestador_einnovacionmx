@@ -11,6 +11,8 @@ function value<T extends string>(flag: string, raw: string | undefined, allowed:
 export function parseCliArgs(args: readonly string[], config: CliConfig = {}): CliOptions {
   const defaults: CliOptions = { command: "run", dryRun: config.dryRun ?? false, json: config.output === "json", profile: config.profile ?? "auto", noEscalation: false };
   if (args.length === 0) return { ...defaults, command: "interactive" };
+  if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) return { ...defaults, command: "version" };
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) return { ...defaults, command: "help" };
   if (args.length === 1 && args[0] === "status") return { ...defaults, command: "status" };
   let prompt: string | undefined;
   const result: CliOptions = { ...defaults };

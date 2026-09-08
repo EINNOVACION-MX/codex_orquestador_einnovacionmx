@@ -21,12 +21,13 @@ export class ProjectContextService {
     if (!metadata || metadata.schemaVersion !== PROJECT_SCHEMA_VERSION) metadata = { schemaVersion: PROJECT_SCHEMA_VERSION, projectId: createHash("sha256").update(root).digest("hex").slice(0, 16), name: basename(root), rootPath: root, initializedAt: now(), lastOpenedAt: now(), ...(commit ? { repository: { root, lastIndexedCommit: commit } } : {}) };
     metadata.lastOpenedAt = now();
     if (changed) context = this.index(root);
-    state = { schemaVersion: PROJECT_SCHEMA_VERSION, ...(commit ? { lastIndexedCommit: commit } : {}), lastWorkingTree: working };
+    state = { ...state, schemaVersion: PROJECT_SCHEMA_VERSION, ...(commit ? { lastIndexedCommit: commit } : {}), lastWorkingTree: working };
     const threads = readJson<ProjectThreads>(threadsPath) ?? { schemaVersion: PROJECT_SCHEMA_VERSION, threads: [] };
     writeJson(projectPath, metadata); writeJson(contextPath, context); writeJson(statePath, state); writeJson(threadsPath, threads);
     return { metadata, context: context!, threads, state, reindexed: changed };
   }
   public saveThreads(root: string, threads: ProjectThreads) { writeJson(join(root, ".cx", "threads.json"), threads); }
+  public saveState(root: string, state: ProjectState) { writeJson(join(root, ".cx", "state.json"), state); }
   public envelope(snapshot: ProjectSnapshot): ProjectContextEnvelope {
     const c = snapshot.context;
     return { projectId: snapshot.metadata.projectId, projectName: snapshot.metadata.name, stack: c.stack.slice(0, 12), ...(c.architecture ? { architectureSummary: c.architecture.slice(0, 300) } : {}), importantModules: c.importantModules.slice(0, 12), ...(c.database ? { databaseSummary: c.database.slice(0, 200) } : {}), integrations: c.integrations.slice(0, 8), conventions: c.conventions.slice(0, 8), commands: Object.keys(c.commands).slice(0, 12), constraints: c.constraints.slice(0, 8), knownDecisions: c.knownDecisions.slice(0, 8), agentsInstructionsAvailable: c.conventions.includes("AGENTS.md instructions apply"), currentGitState: snapshot.state.lastWorkingTree ? "dirty" : "clean" };

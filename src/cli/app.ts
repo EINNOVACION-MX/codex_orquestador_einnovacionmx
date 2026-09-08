@@ -10,6 +10,7 @@ import { formatStatus, formatTask } from "./format.ts";
 import { ProjectContextService } from "../project/project-context-service.ts";
 import { validateAttachments } from "../attachments.ts";
 import { CliInputError, type CliAdapter, type CliOptions, type CliResponse, type CliTaskOutput } from "./types.ts";
+import { formatHelp, formatVersion } from "./identity.ts";
 
 const STATE_PROFILE: Readonly<Record<Exclude<CliOptions["profile"], "auto">, Exclude<BudgetState, "unknown">>> = {
   balanced: "balanced", conservative: "conservative", eco: "eco", emergency: "emergency",
@@ -51,6 +52,8 @@ export class CliApplication {
 
   public async run(options: CliOptions): Promise<CliResponse> {
     try {
+      if (options.command === "version") return { exitCode: 0, stdout: formatVersion(), stderr: "" };
+      if (options.command === "help") return { exitCode: 0, stdout: formatHelp(), stderr: "" };
       if (options.command === "status") return await this.status(options);
       return await this.task(options);
     } catch (error) {

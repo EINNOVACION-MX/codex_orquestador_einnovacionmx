@@ -42,6 +42,16 @@ describe("InteractiveSession", () => {
     const s = session(); await s.value.handle("/status"); await s.value.handle("/model terra"); await s.value.handle("/reasoning high"); await s.value.handle("/profile eco"); await s.value.handle("/dry-run on"); await s.value.handle("/escalation off");
     assert.equal(s.adapter.calls.length, 0); assert.equal(s.value.state.model, "terra"); assert.equal(s.value.state.reasoning, "high"); assert.equal(s.value.state.profile, "eco"); assert.equal(s.value.state.dryRun, true); assert.equal(s.value.state.escalationEnabled, false);
   });
+  it("shows compact startup identity and independent-project about text", async () => {
+    const s = session(); await s.value.start(); await s.value.handle("/about");
+    const output = s.output.join("\n");
+    assert.match(output, /CX Auto Model Orchestrator/); assert.match(output, /Developed by EINNOVACION MX/); assert.match(output, /Project:/); assert.match(output, /not an official OpenAI product/);
+    assert.equal(s.adapter.calls.length, 0);
+  });
+  it("renders the structured command help without starting a task", async () => {
+    const s = session(); await s.value.handle("/help");
+    assert.match(s.output.join("\n"), /COMMANDS/); assert.match(s.output.join("\n"), /\/image/); assert.match(s.output.join("\n"), /\/interrupt/); assert.equal(s.adapter.calls.length, 0);
+  });
   it("removes overrides with auto and new removes only the thread", async () => {
     const s = session(); await s.value.handle("one"); await s.value.handle("/model terra"); await s.value.handle("/reasoning high"); await s.value.handle("/model auto"); await s.value.handle("/reasoning auto"); await s.value.handle("/clear"); await s.value.handle("/new");
     assert.equal(s.value.state.threadId, undefined); assert.equal(s.value.state.model, undefined); assert.equal(s.value.state.reasoning, undefined); assert.ok(s.output.includes("clear"));
@@ -59,4 +69,9 @@ describe("InteractiveSession", () => {
     assert.equal(s.adapter.interrupts, 2); assert.match(s.output.join("\n"), /Turn interrupted/);
   });
   it("uses pending images for the next message and then clears them", async () => { const s = session(); writeFileSync(join(s.cwd, "login.png"), "png"); await s.value.handle("/image login.png"); await s.value.handle("/images"); assert.match(s.output.join("\n"), /login.png/); await s.value.handle("Cambia el login"); assert.equal(s.adapter.calls[0]?.attachments?.length, 1); assert.equal(s.value.state.attachments.length, 0); await s.value.handle("/images clear"); });
+  it("persists CX agent preferences and applies Security as a Sol minimum", async () => {
+    const s = session(); await s.value.start(); await s.value.handle("/agents security"); await s.value.handle("Revisa permisos RLS");
+    assert.equal(s.value.state.agent, "security"); assert.equal(s.adapter.calls[0]?.routingDecision?.selectedModel, "sol"); assert.equal(s.adapter.calls[0]?.minimumModel, "sol");
+    const again = new InteractiveSession(s.adapter, { write: () => undefined }, s.cwd); await again.start(); assert.equal(again.state.agent, "security");
+  });
 });

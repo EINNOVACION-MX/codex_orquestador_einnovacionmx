@@ -16,6 +16,8 @@ export { CodexAppServerUsageProvider, parseAccountRateLimits } from "./usage/cod
 export { parseCodexStatus } from "./usage/status-parser.ts";
 export { AutoModelOrchestrator } from "./orchestration/auto-model-orchestrator.ts";
 export { ProjectContextService } from "./project/project-context-service.ts";
+export { CodexCapabilityRegistry, CX_COMMANDS } from "./capabilities/codex-capability-registry.ts";
+export { CX_AGENTS, getCxAgent } from "./agents/cx-agent-registry.ts";
 export { CxNativeBridge, CxBridgeError } from "./bridge/cx-native-bridge.ts";
 export type * from "./codex/types.ts";
 export type * from "./history/types.ts";

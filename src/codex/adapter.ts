@@ -13,6 +13,8 @@ import type {
 } from "./types.ts";
 import type { OrchestrationRequest, OrchestrationResult } from "../orchestration/types.ts";
 import type { EscalationPolicyService } from "../orchestration/types.ts";
+import { CodexCapabilityRegistry } from "../capabilities/codex-capability-registry.ts";
+import type { CodexCapabilitySnapshot } from "../capabilities/types.ts";
 
 /**
  * Application-facing boundary for Codex. The classifier and router stay
@@ -39,6 +41,15 @@ export class CodexAdapter {
 
   public discoverModels(): Promise<DiscoveredCodexModel[]> {
     return this.resolver.discover();
+  }
+
+  /** Public App Server discovery only; it never creates a thread or starts a turn. */
+  public requestCapability<T>(method: string, params: import("./types.ts").JsonRecord): Promise<T> {
+    return this.transport.request<T>(method, params);
+  }
+
+  public discoverCapabilities(cwd?: string): Promise<CodexCapabilitySnapshot> {
+    return new CodexCapabilityRegistry(this).discover(cwd);
   }
 
   public execute(input: CodexExecutionRequest): Promise<CodexExecutionResult> {

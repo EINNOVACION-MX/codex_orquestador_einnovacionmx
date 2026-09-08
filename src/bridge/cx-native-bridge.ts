@@ -6,6 +6,8 @@ import { routeTask } from "../router.ts";
 import { ProjectContextService } from "../project/project-context-service.ts";
 import type { UsageSnapshot } from "../budget/types.ts";
 import type { CxBridgeDependencies, CxExecuteResult, CxNativeExecutionResult, CxProjectResult, CxRouteResult } from "./types.ts";
+import { CodexCapabilityRegistry } from "../capabilities/codex-capability-registry.ts";
+import { cxAgentCapabilities } from "../agents/cx-agent-registry.ts";
 
 const unknownUsage = (): UsageSnapshot => ({ source: "unknown", capturedAt: new Date().toISOString() });
 
@@ -39,6 +41,19 @@ export class CxNativeBridge {
   public async status(): Promise<{ usage: UsageSnapshot; budget: ReturnType<BudgetController["evaluate"]>["state"] }> { const usage = await this.usage(); return { usage, budget: new BudgetController().evaluate({ usage, routingDecision: routeTask({ prompt: "status" }) }).state }; }
   public project(): CxProjectResult { const snapshot = this.projects.open(this.dependencies.cwd); return { metadata: snapshot.metadata, reindexed: snapshot.reindexed, ...(snapshot.threads.activeThreadId ? { activeThreadId: snapshot.threads.activeThreadId } : {}), threadCount: snapshot.threads.threads.length }; }
   public context() { const snapshot = this.projects.open(this.dependencies.cwd); return this.projects.envelope(snapshot); }
+  /** Shared inventory for the CLI and the native MCP bridge. No model turn is started. */
+  public async capabilities() {
+    let snapshot;
+    try {
+      snapshot = this.dependencies.adapter.discoverCapabilities
+        ? await this.dependencies.adapter.discoverCapabilities(this.dependencies.cwd)
+        : await new CodexCapabilityRegistry({ discoverModels: async () => [] }).discover(this.dependencies.cwd);
+    } catch {
+      snapshot = await new CodexCapabilityRegistry({ discoverModels: async () => [] }).discover(this.dependencies.cwd);
+    }
+    return { ...snapshot, agents: [...snapshot.agents, ...cxAgentCapabilities()] };
+  }
+  public agents() { return { native: [{ id: "native-agents", name: "Codex Native Agents", available: false, description: "No public agent-list endpoint is exposed by this App Server version." }], cx: cxAgentCapabilities() }; }
   private async usage(): Promise<UsageSnapshot> { try { return await this.dependencies.adapter.getUsage(); } catch { return unknownUsage(); } }
   private nativeResult(project: string, route: CxRouteResult, orchestration: Awaited<ReturnType<CxBridgeDependencies["adapter"]["executeAuto"]>>, threadId: string | null): CxNativeExecutionResult {
     const escalations = orchestration.escalations.filter((item) => item.action === "escalate-model" && item.nextModel).map((item) => `${item.currentModel} → ${item.nextModel}${item.nextReasoning ? ` ${item.nextReasoning}` : ""}`);

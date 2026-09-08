@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { CodexModelResolver } from "../src/codex/model-resolver.ts";
 import { CodexThreadManager } from "../src/codex/thread-manager.ts";
 import { CodexTurnExecutor } from "../src/codex/turn-executor.ts";
+import { codexChildEnvironment } from "../src/codex/stdio-transport.ts";
 import type {
   CodexNotification,
   CodexNotificationListener,
@@ -140,6 +141,19 @@ describe("CodexModelResolver", () => {
 
     assert.equal(decision.status, "minimum-model-unavailable");
     assert.equal(decision.realModelId, null);
+  });
+});
+
+describe("CodexStdioTransport environment", () => {
+  it("preserves the local Codex environment and fills only missing Windows home variables", () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const env = codexChildEnvironment({ USERPROFILE: "D:\\Profiles\\cx", APPDATA: "D:\\Data\\Roaming", LOCALAPPDATA: "D:\\Data\\Local", PATH: "existing" });
+      assert.equal(env.HOME, "D:\\Profiles\\cx"); assert.equal(env.HOMEDRIVE, "D:"); assert.equal(env.HOMEPATH, "\\Profiles\\cx");
+      assert.equal(env.APPDATA, "D:\\Data\\Roaming"); assert.equal(env.LOCALAPPDATA, "D:\\Data\\Local"); assert.equal(env.PATH, "existing");
+      assert.equal(codexChildEnvironment({ HOME: "custom", USERPROFILE: "D:\\Profiles\\cx" }).HOME, "custom");
+    } finally { if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform); }
   });
 });
 

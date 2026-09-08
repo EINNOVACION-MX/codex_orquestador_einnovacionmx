@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
+import { win32 } from "node:path";
 import type {
   CodexNotification,
   CodexNotificationListener,
@@ -30,6 +31,17 @@ export class CodexTransportError extends Error {
     super(message);
     this.name = "CodexTransportError";
   }
+}
+
+/** Preserve the caller environment and supply only the Windows HOME fallback Codex needs. */
+export function codexChildEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
+  if (process.platform !== "win32" || env.HOME || !env.USERPROFILE) return env;
+  env.HOME = env.USERPROFILE;
+  const parsed = win32.parse(env.USERPROFILE);
+  if (!env.HOMEDRIVE && parsed.root) env.HOMEDRIVE = parsed.root.replace(/\\$/, "");
+  if (!env.HOMEPATH && parsed.root) env.HOMEPATH = env.USERPROFILE.slice(parsed.root.length).replace(/\//g, "\\").replace(/^/, "\\");
+  return env;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -67,6 +79,7 @@ export class CodexStdioTransport implements CodexTransport {
   ): Promise<CodexStdioTransport> {
     const process = spawn(options.command ?? "codex", options.args ?? ["app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env: codexChildEnvironment(),
     });
     const transport = new CodexStdioTransport(process);
 
@@ -74,7 +87,7 @@ export class CodexStdioTransport implements CodexTransport {
       clientInfo: {
         name: "codex-auto-model-router",
         title: "Codex Auto Model Router",
-        version: "0.1.0",
+        version: "0.2.0",
       },
     });
     transport.notify("initialized", {});

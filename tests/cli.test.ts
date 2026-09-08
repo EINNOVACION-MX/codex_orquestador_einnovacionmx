@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CliApplication } from "../src/cli/app.ts";
@@ -9,6 +10,7 @@ import type { CliAdapter } from "../src/cli/types.ts";
 import type { OrchestrationRequest, OrchestrationResult } from "../src/orchestration/types.ts";
 import type { UsageSnapshot } from "../src/budget/types.ts";
 import { routeTask } from "../src/router.ts";
+import { formatHelp, formatVersion } from "../src/cli/identity.ts";
 
 const usage: UsageSnapshot = { source: "manual", capturedAt: "2026-09-06T12:00:00.000Z", fiveHour: { remainingPercent: 92 }, weekly: { remainingPercent: 59 } };
 
@@ -45,7 +47,15 @@ describe("CLI parsing", () => {
       command: "run", prompt: "Cambia el padding", dryRun: true, json: true, profile: "eco", model: "terra", reasoning: "medium", noEscalation: true,
     });
     assert.equal(parseCliArgs(["status"]).command, "status");
+    assert.equal(parseCliArgs(["--version"]).command, "version");
+    assert.equal(parseCliArgs(["--help"]).command, "help");
     assert.throws(() => parseCliArgs(["prompt", "--model", "invalid"]), /--model/);
+  });
+
+  it("formats version and help without adding branding to JSON task output", () => {
+    assert.match(formatVersion(), /^CX Auto Model Orchestrator 0\.2\.0$/);
+    assert.match(formatHelp(), /--image, -i <path>/);
+    assert.match(execFileSync(process.execPath, ["--experimental-strip-types", "bin/cx.js", "--version"], { cwd: process.cwd(), encoding: "utf8" }), /^CX Auto Model Orchestrator 0\.2\.0/);
   });
 });
 
@@ -73,6 +83,7 @@ describe("CLI application", () => {
     assert.equal(json.usageSnapshot.weekly?.remainingPercent, 59);
     assert.equal(json.budgetState, "conservative");
     assert.equal(response.stderr, "");
+    assert.equal(response.stdout.includes("Developed by EINNOVACION MX"), false);
   });
 
   it("reads status without executing an orchestration", async () => {
@@ -81,6 +92,13 @@ describe("CLI application", () => {
     assert.match(response.stdout, /CODEX STATUS/);
     assert.match(response.stdout, /CONSERVATIVE/);
     assert.equal(adapter.turns, 0);
+  });
+
+  it("serves metadata commands without using the adapter", async () => {
+    const adapter = new FakeAdapter();
+    const version = await new CliApplication(adapter).run(parseCliArgs(["--version"]));
+    const help = await new CliApplication(adapter).run(parseCliArgs(["--help"]));
+    assert.match(version.stdout, /CX Auto Model Orchestrator/); assert.match(help.stdout, /Usage:/); assert.equal(adapter.turns, 0);
   });
 
   it("records profile and model overrides and validates incompatible reasoning", async () => {
